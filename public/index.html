@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Local NTU hall aircon controls and sleep timer.">
+  <title>Hall Aircon · Sleep timer</title><link rel="icon" href="/favicon.svg">
+  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header><a class="brand" href="/">hall<span> / </span>aircon</a><span class="badge">Local demo</span></header>
+    <section class="intro"><p class="eyebrow">A cooler night</p><h1 id="intro-title">Sleep well.<br>We’ll handle the off.</h1><p id="intro-description">Room controls and a shutdown timer, in one place.</p></section>
+    <div id="notice" role="status" aria-live="polite" hidden></div>
+    <div id="loading" role="status"><span class="skeleton"></span><span class="skeleton"></span><p>Restoring your connection…</p></div>
+    <section id="connect" class="card" hidden>
+      <div class="card-heading"><h2>Connect your aircon</h2></div>
+      <p>Sign in on NTU’s official page. Your password stays with NTU.</p>
+      <label class="remember"><input id="remember" type="checkbox" checked> Keep me connected on this computer</label>
+      <button id="automatic-login" class="primary">Sign in with NTU</button>
+      <p id="helper-status" class="fine">Checking for the login helper…</p>
+      <p id="login-waiting" role="status" hidden>Finish signing in on NTU’s page. This app will connect automatically.</p>
+      <button id="cancel-login" class="text-button" hidden>Cancel sign-in</button>
+      <details><summary>One-time automatic login setup (Chrome / Edge)</summary><p>Open chrome://extensions or edge://extensions, enable Developer mode, click Load unpacked, and select this project’s extension folder. Then refresh this page.</p><p>The helper watches only this local app and Daikin’s return page. It has no permission to read NTU’s login page. Automatic capture in Safari on iPhone is not available in this local demo.</p></details>
+      <details><summary>Connect manually instead</summary>
+      <a href="https://cmsntu-prod.daikinpayu.com/adfs/login" target="_blank" rel="noopener noreferrer">Open official NTU sign-in</a>
+      <p class="fine">After sign-in, Daikin may show “Cannot GET /adfs/saml/redirect/…”. Copy that tab’s full address and paste it below.</p>
+      <form id="connect-form">
+        <label for="token">Final Daikin return URL or aircon token</label>
+        <input id="token" name="token" type="password" autocomplete="off" spellcheck="false" maxlength="8192" required placeholder="Paste privately here, not in chat">
+        <button type="submit" class="primary">Connect securely</button>
+      </form>
+      </details>
+      <p class="fine">Remembered aircon tokens are encrypted locally. Disconnect deletes the saved connection and timers. Your NTU password is never saved.</p>
+      <details><summary>What happens after NTU sign-in?</summary><p>The button starts at Daikin, then opens loginfs.ntu.edu.sg. Enter your password only on NTU’s page. Daikin handles the NTU sign-in response.</p><p>The final address ends in /adfs/saml/redirect/ followed by a login code. The “Cannot GET” message can be ignored. Copy the full address into this form. The local server exchanges that code with Daikin for an aircon token, then checks your aircon status before enabling controls.</p><p>The pasted address is parsed locally and never opened. Only the login code is sent to Daikin’s fixed authentication endpoint. Never paste your NTU password or SSO cookie. Keep the full return URL out of chat and screenshots. Practice mode works without signing in.</p></details>
+      <div class="divider"><span>Just exploring?</span></div><button id="practice" class="secondary">Try practice mode</button>
+    </section>
+    <section id="controls" hidden>
+      <div class="connection"><span id="mode">Practice mode</span><button id="disconnect" class="text-button">Disconnect</button></div>
+      <p id="practice-note" class="practice-note" hidden>Simulated aircon. These controls do not affect your room.</p>
+      <div class="control-grid">
+      <div class="card climate">
+        <div class="card-heading"><h2>Your aircon</h2><button id="refresh" class="text-button">Refresh</button></div>
+        <div class="temperature-display"><div class="reading"><span id="temperature">--</span><span class="unit">°C</span></div>
+        <p class="reading-label">Room temperature</p></div><p id="power-state" class="power-state">Checking status…</p>
+        <div class="power-buttons"><button id="on" class="primary">Turn on</button><button id="off" class="secondary">Turn off</button></div>
+        <p id="checked" class="fine"></p>
+        <form id="temperature-form">
+          <label for="setpoint">Target temperature (°C)</label>
+          <div class="temperature-row"><div class="temperature-input">
+            <button id="temperature-down" type="button" class="secondary" aria-label="Lower target temperature">-</button>
+            <input id="setpoint" type="number" min="22" max="30" step="1" value="25" required aria-describedby="temperature-help temperature-current">
+            <button id="temperature-up" type="button" class="secondary" aria-label="Raise target temperature">+</button>
+          </div><button id="apply-temperature" class="secondary" type="submit">Apply</button></div>
+          <p id="temperature-current" class="fine">Checking target temperature…</p>
+          <p id="temperature-help" class="fine">Demo range: 22-30°C. Daikin may apply narrower limits. Your sleep timer stays set.</p>
+        </form>
+      </div>
+      <div class="card timer-card">
+        <div class="card-heading"><h2>Sleep timer</h2><span class="small-label">Auto off</span></div>
+        <p>Let the room cool. Then switch off for the rest of the night.</p>
+        <form id="timer-form"><div class="presets" aria-label="Timer duration"><button type="button" data-minutes="60">1 hour</button><button type="button" data-minutes="120" class="selected">2 hours</button><button type="button" data-minutes="180">3 hours</button></div>
+          <label for="minutes">Or choose minutes</label><div class="timer-input"><input id="minutes" type="number" min="1" max="480" value="120" aria-describedby="timer-help" required><span>minutes</span></div>
+          <button class="primary" type="submit">Set shutdown timer</button>
+        </form>
+        <div id="timer-result" role="status" aria-live="polite" hidden><p id="timer-state" class="timer-state"></p><p id="timer-time" class="timer-time"></p><p id="countdown" aria-live="off"></p><button id="cancel" class="text-button">Cancel timer</button></div>
+        <p id="timer-help" class="fine">Setting a timer does not turn the aircon on. Keep this computer awake and the local server running. Closing this tab is fine.</p>
+      </div>
+      </div>
+      <p id="last-result" role="status" aria-live="polite"></p>
+    </section>
+    <footer>Independent NTU student demo · Not affiliated with NTU or Daikin<br>Remembered connections and timers survive server restarts.</footer>
+  </main>
+</body></html>
