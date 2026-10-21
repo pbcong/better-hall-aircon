@@ -1,23 +1,37 @@
 import http from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createVault } from './vault.mjs';
+import { singaporeDate } from './public/schedule.js';
+import { tally, emptyDay } from './public/usage.js';
 
 const UPSTREAM = 'https://apintu-prod.daikinpayu.com';
 // Conservative demo bounds, not a claim about every NTU controller's limits.
 const TEMPERATURE_LIMITS = { min: 22, max: 30 };
+// Saver phases shorter than three minutes risk short-cycling the unit; these are demo guardrails.
+const SAVER_LIMITS = { minMinutes: 3, maxMinutes: 120, minTemperature: 18, maxTemperature: 32 };
+// Readings are logged every minute while cooling or saving, and every five minutes while idle.
+const POLL_ACTIVE = 60000, POLL_IDLE = 300000;
+// Saver is on unless the owner switches it off: Turn on then cools in cycles instead of running nonstop.
+// The first cooling phase is longer to bring the room down; after that the short cycle holds it there.
+const SAVER_DEFAULTS = { enabled: true, kind: 'interval', firstMinutes: 10, onMinutes: 5, offMinutes: 5, coolTo: 24, warmTo: 26 };
+const phaseMs = v => (v.phase === 'off' ? v.offMinutes : v.switches === 0 ? v.firstMinutes ?? v.onMinutes : v.onMinutes) * 60000;
 const ASSETS = new Map([
   ['/', ['public/index.html', 'text/html; charset=utf-8']],
+  ['/schedule.js', ['public/schedule.js', 'text/javascript; charset=utf-8']],
   ['/app.js', ['public/app.js', 'text/javascript; charset=utf-8']],
+  ['/usage.js', ['public/usage.js', 'text/javascript; charset=utf-8']],
   ['/style.css', ['public/style.css', 'text/css; charset=utf-8']],
   ['/favicon.svg', ['public/favicon.svg', 'image/svg+xml']],
+  ['/apple-touch-icon.png', ['public/apple-touch-icon.png', 'image/png']],
 ]);
 export class AppError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
+export const ROOM_ID = 'personal_room_'.padEnd(43, '_');
 const secret = () => randomBytes(32).toString('base64url');
 const equal = (a, b) => typeof a === 'string' && typeof b === 'string' &&
   Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -65,6 +79,35 @@ export function parseToken(value) {
   }
   return token;
 }
+const labelOrNull = value => typeof value === 'string' && /^[A-Za-z0-9]{1,4}$/.test(value) ? value : null;
+// Rows: t time, p power, r room °C, s setpoint, b balance, m saver kind, e event that caused the reading.
+export function memoryHistory(limit = 5000) {
+  const rows = [], months = new Map();
+  return { append: async row => { rows.push(row); if (rows.length > limit) rows.shift(); }, read: async since => rows.filter(row => row.t >= since),
+    months: async () => [...months.keys()], month: async id => structuredClone(months.get(id)), putMonth: async (id, value) => { months.set(id, structuredClone(value)); } };
+}
+export function fileHistory(path) {
+  // Day totals live beside the raw log in one small JSON file, keyed by month.
+  const dailyPath = path.replace(/\.jsonl$/, '') + '-daily.json';
+  let totals;
+  const load = async () => {
+    if (totals) return totals;
+    try { totals = JSON.parse(await readFile(dailyPath, 'utf8')); } catch (error) { if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error; totals = {}; }
+    return totals;
+  };
+  return {
+    months: async () => Object.keys(await load()),
+    month: async id => structuredClone((await load())[id]),
+    async putMonth(id, value) { (await load())[id] = structuredClone(value); await writeFile(dailyPath, JSON.stringify(totals), { mode: 0o600 }); },
+    append: row => appendFile(path, JSON.stringify(row) + '\n', { mode: 0o600 }),
+    async read(since) {
+      let text;
+      try { text = await readFile(path, 'utf8'); } catch (error) { if (error.code === 'ENOENT') return []; throw error; }
+      // A crash can leave one partial line; skip it rather than lose the log.
+      return text.split('\n').flatMap(line => { try { const row = JSON.parse(line); return row?.t >= since ? [row] : []; } catch { return []; } });
+    },
+  };
+}
 function numberOrNull(value) {
   if (value === null || value === undefined || value === '') return null;
   const n = Number(value);
@@ -81,19 +124,27 @@ export function normalizeStatus(body) {
   }
   // Deliberately omit name, matric number, room address and all credentials.
   return { power: Number(ac.power) === 1, temperature: numberOrNull(ac.current_temperature),
-    setpoint: numberOrNull(ac.setpoint), checkedAt: Date.now() };
+    setpoint: numberOrNull(ac.setpoint), balance: numberOrNull(data.balance), fan: labelOrNull(ac.fanstep), checkedAt: Date.now() };
 }
-export function createDaikinClient(fetchImpl = fetch) {
+export function createDaikinClient(fetchImpl = fetch, { cloud = false } = {}) {
   async function request(path, token, body) {
     let response;
     try {
       response = await fetchImpl(UPSTREAM + path, {
-        method: body ? 'POST' : 'GET', redirect: 'error', signal: AbortSignal.timeout(12000),
+        method: body ? 'POST' : 'GET', redirect: cloud ? 'manual' : 'error', signal: AbortSignal.timeout(12000),
         headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), Accept: 'application/json',
           'User-Agent': 'Dart/3.0 (dart:io)', ...(body ? { 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8' } : {}) },
         ...(body ? { body: new URLSearchParams(body) } : {}),
       });
-    } catch { throw new AppError(502, 'Cannot reach Daikin. Check your internet connection and try again.'); }
+    } catch (error) {
+      if (!cloud) throw new AppError(502, 'Cannot reach Daikin. Check your internet connection and try again.');
+      const step = path === '/auth/ad/callback' ? 'login exchange' : path === '/me' ? 'status check' : 'control request';
+      const reason = ['TimeoutError', 'AbortError'].includes(error?.name) ? 'timed out' : 'connection failed';
+      throw new AppError(502, `Cloudflare could not reach Daikin during ${step} (${reason}).`);
+    }
+    if (cloud && response.status >= 300 && response.status < 400) {
+      throw new AppError(502, 'Daikin redirected the cloud request. No redirect was followed.');
+    }
     // NTU's Daikin service currently uses HTTP 402 for an unauthenticated /me request.
     if ([401, 402, 403].includes(response.status)) throw new AppError(401, 'Your aircon token was rejected or expired. Reconnect using a fresh token.');
     if (!response.ok) throw new AppError(502, 'Daikin could not complete the request. Please try again.');
@@ -120,43 +171,92 @@ export function createDaikinClient(fetchImpl = fetch) {
 }
 
 export function createApp({ client = createDaikinClient(), now = Date.now, sessionMs = 30 * 24 * 3600 * 1000,
-  pause = ms => new Promise(resolve => setTimeout(resolve, ms)), vault = null, initialRecords = [], hostedOrigin = null } = {}) {
+  pause = ms => new Promise(resolve => setTimeout(resolve, ms)), vault = null, initialRecords = [], hostedOrigin = null, sharedRoom = false, history = memoryHistory() } = {}) {
   const sessions = new Map();
   const rate = new Map();
   const loginTickets = new Map();
   for (const record of initialRecords.slice(0, 20)) {
-    if (!/^[A-Za-z0-9_-]{43}$/.test(record.id) || record.expiresAt <= now() || (!hostedOrigin && record.mode !== 'live')) continue;
+    if (!/^[A-Za-z0-9_-]{43}$/.test(record.id) || (!sharedRoom && record.expiresAt <= now()) || (!hostedOrigin && record.mode !== 'live')) continue;
     if (record.token) parseToken(record.token);
-    sessions.set(record.id, { ...record, csrf: hostedOrigin ? record.csrf : secret(), busy: false, loginTicket: null });
+    sessions.set(sharedRoom ? ROOM_ID : record.id, { ...structuredClone(record), expiresAt: sharedRoom ? Number.MAX_SAFE_INTEGER : record.expiresAt, csrf: hostedOrigin ? (record.csrf ?? secret()) : secret(), busy: false, loginTicket: null, saver: record.saver ?? null, saverConfig: record.saverConfig ?? null, lastRow: record.lastRow ?? null, ledger: record.ledger ?? false, nextPoll: record.nextPoll ?? now() });
   }
+  let committed = structuredClone([...sessions.entries()]);
   const persist = async () => {
     if (!vault) return;
     const records = [...sessions.entries()].filter(([, s]) => s.expiresAt > now() && (hostedOrigin || (s.mode === 'live' && s.remember))).map(([id, s]) => ({
-      id, csrf: hostedOrigin ? s.csrf : undefined, token: s.token, mode: s.mode, remember: s.remember, status: s.status, timer: s.timer, lastResult: s.lastResult, expiresAt: s.expiresAt,
+      id, csrf: hostedOrigin ? s.csrf : undefined, token: s.token, mode: s.mode, remember: s.remember, status: s.status, timer: s.timer, saver: s.saver, saverConfig: s.saverConfig, lastRow: s.lastRow, ledger: s.ledger, nextPoll: s.nextPoll, lastResult: s.lastResult, expiresAt: s.expiresAt,
     }));
-    try { await vault.save(records); } catch { throw new AppError(503, 'Could not save the connection safely. Check local storage and try again.'); }
+    try {
+      await vault.save(records);
+      committed = structuredClone([...sessions.entries()].map(([id, s]) => [id, { ...s, busy: false }]));
+    } catch (error) {
+      for (const [id, saved] of committed) {
+        const current = sessions.get(id);
+        if (current) Object.assign(current, structuredClone(saved)); else sessions.set(id, structuredClone(saved));
+      }
+      for (const id of sessions.keys()) if (!committed.some(([key]) => key === id)) sessions.delete(id);
+      const stage = ['encryption', 'transaction', 'write', 'alarm'].includes(error.storageStage) ? error.storageStage : 'unknown';
+      throw new AppError(503, hostedOrigin ? `Could not save your connection in cloud storage (${stage}). Please try again.` : 'Could not save the connection safely. Check local storage and try again.');
+    }
   };
   function publicState(s) {
-    return { connected: Boolean(s.mode), mode: s.mode, status: s.status, timer: s.timer,
-      lastResult: s.lastResult, busy: s.busy, expiresAt: s.expiresAt, remembered: Boolean(s.remember && vault), temperatureLimits: TEMPERATURE_LIMITS,
+    return { connected: Boolean(s.mode), mode: s.mode, status: s.status, timer: s.timer, saver: s.saver ?? null, saverConfig: { ...SAVER_DEFAULTS, ...s.saverConfig }, saverLimits: SAVER_LIMITS,
+      lastResult: s.lastResult, busy: s.busy, expiresAt: sharedRoom ? null : s.expiresAt, hosted: Boolean(hostedOrigin), authenticated: true, serverNow: now(), timezone: 'Asia/Singapore', remembered: Boolean(s.remember && vault), temperatureLimits: TEMPERATURE_LIMITS,
       loginWaiting: Boolean(s.loginTicket && loginTickets.has(s.loginTicket)), loginExpiresAt: loginTickets.get(s.loginTicket)?.expiresAt ?? null };
   }
   function forget(s) {
     if (s.loginTicket) loginTickets.delete(s.loginTicket);
-    s.loginTicket = null; s.token = null; s.mode = null; s.timer = null; s.status = null; s.lastResult = null; s.remember = false;
+    s.loginTicket = null; s.token = null; s.mode = null; s.timer = null; s.saver = null; s.status = null; s.lastResult = null; s.remember = false;
   }
   async function connect(s, credential, remember) {
     if (hostedOrigin && !remember) throw new AppError(400, 'Cloud timers require a remembered connection. Keep the checkbox selected.');
     const hash = parseLoginReturn(credential);
     const token = hash ? await client.exchange(hash) : parseAirconCredential(credential);
     const checked = await client.status(token);
-    forget(s); s.token = token; s.mode = 'live'; s.status = checked; s.remember = remember;
+    const timer = s.mode === 'practice' ? null : s.timer;
+    const lastResult = s.mode === 'practice' ? null : s.lastResult;
+    forget(s); s.timer = timer; s.lastResult = lastResult; s.token = token; s.mode = 'live'; s.status = checked; s.remember = remember;
+    s.nextPoll = now() + POLL_ACTIVE; await record(s, 'connect');
   }
   async function status(s) {
     if (s.mode === 'practice') return { ...s.status, checkedAt: now() };
     return client.status(s.token);
   }
-  async function command(s, power) {
+  // Only real equipment is logged; a logging failure must never block a command.
+  async function record(s, event) {
+    if (s.mode !== 'live' || !s.status) return;
+    const row = { t: now(), p: s.status.power ? 1 : 0, r: s.status.temperature, s: s.status.setpoint, b: s.status.balance ?? null,
+      ...(s.saver?.state === 'running' ? { m: s.saver.kind[0] } : {}), ...(event ? { e: event } : {}) };
+    try { await history.append(row); await ledger(s, row); } catch { /* Keep controlling the aircon. */ }
+  }
+  // Day totals are kept forever and updated from each new reading, so any date range can be summed cheaply.
+  async function ledger(s, row) {
+    const prev = s.lastRow; s.lastRow = row;
+    const months = new Map();
+    // First run: rebuild from the raw readings logged before day totals existed.
+    const rows = s.ledger ? (prev ? [prev, row] : []) : await history.read(now() - 744 * 3600000);
+    for (let i = 1; i < rows.length; i++) {
+      for (const stamp of [rows[i - 1].t, rows[i].t]) {
+        const id = singaporeDate(stamp).slice(0, 7);
+        if (!months.has(id)) months.set(id, s.ledger ? await history.month(id) ?? {} : {});
+      }
+      tally(date => (months.get(date.slice(0, 7))[date] ??= emptyDay(date)), rows[i - 1], rows[i]);
+    }
+    for (const [id, value] of months) await history.putMonth(id, value);
+    s.ledger = true;
+  }
+  // A reason is kept only for stops the owner did not ask for.
+  // "blocked" marks a stop caused by commands failing, so Saver does not keep retrying on its own.
+  function stopSaver(s, reason = null, blocked = false) {
+    if (s.saver?.state === 'running') s.saver = { ...s.saver, state: 'stopped', reason, blocked, stoppedAt: now() };
+  }
+  const saverSettings = s => { const { enabled, ...settings } = { ...SAVER_DEFAULTS, ...s.saverConfig }; return settings; };
+  // Called once Daikin reports the aircon on: start a fresh cooling phase.
+  async function beginSaver(s) {
+    s.saver = { id: secret(), ...saverSettings(s), state: 'running', phase: 'on', phaseStart: now(), startedAt: now(), switches: 0, failures: 0 };
+    s.nextPoll = now() + Math.min(POLL_ACTIVE, phaseMs(s.saver)); await record(s, 'saver-start');
+  }
+  async function command(s, power, source = 'manual') {
     if (s.mode === 'practice') s.status = { ...s.status, power, checkedAt: now() };
     else await client.control(s.token, power);
     // A successful POST is not proof that the unit physically changed state.
@@ -169,35 +269,86 @@ export function createApp({ client = createDaikinClient(), now = Date.now, sessi
     const confirmed = s.status.power === power;
     s.lastResult = { at: now(), confirmed, message: confirmed ?
       `Daikin reports aircon ${power ? 'on' : 'off'}.` : 'Command sent; Daikin has not confirmed the change yet.' };
+    s.nextPoll = now() + POLL_ACTIVE; await record(s, `${source}-${power ? 'on' : 'off'}`);
     return confirmed;
+  }
+  // Saver alternates cooling and coasting. Billing is per minute switched on, so every coasting minute is free.
+  async function steer(s) {
+    const v = s.saver;
+    const on = s.status.power;
+    if (on !== (v.phase === 'on') && !v.failures) {
+      // Switched elsewhere (official app or remote). Never fight an off; adopt an on.
+      if (!on) { stopSaver(s, 'The aircon was switched off elsewhere, so Saver stopped.'); return; }
+      v.phase = 'on'; v.phaseStart = now(); return;
+    }
+    if (now() - v.phaseStart < phaseMs(v)) return;
+    const room = s.status.temperature;
+    // Without a room reading, temperature mode falls back to its minimum on/off times.
+    if (v.kind === 'thermostat' && room !== null && !(v.phase === 'on' ? room <= v.coolTo : room >= v.warmTo)) return;
+    const want = v.phase !== 'on';
+    if (await command(s, want, 'saver')) { v.phase = want ? 'on' : 'off'; v.phaseStart = now(); v.failures = 0; v.switches++; }
+    else if (++v.failures >= 5) stopSaver(s, `Daikin did not confirm aircon ${want ? 'on' : 'off'} after five tries, so Saver stopped. Check your aircon.`, true);
+  }
+  async function poll(s) {
+    try {
+      s.status = await status(s);
+      await record(s);
+      if (s.saver?.state === 'running') await steer(s);
+      // Saver is the default: an aircon found running without it (switched on from the official app, a remote,
+      // or before Saver was enabled) starts cycling at the next reading.
+      else if (s.status.power && (s.saverConfig?.enabled ?? SAVER_DEFAULTS.enabled) && !s.saver?.blocked) await beginSaver(s);
+    } catch (error) {
+      if (error.status === 401) {
+        s.token = null; s.mode = null; s.remember = false;
+        stopSaver(s, 'Daikin sign-in expired, so Saver stopped. The aircon was left as it was.');
+        if (s.timer?.state === 'scheduled') s.timer = { ...s.timer, state: 'failed', error: 'Daikin sign-in expired before the shutdown could be completed. Reconnect and set a new shutdown.' };
+        s.lastResult = { at: now(), confirmed: false, message: 'Daikin sign-in expired. Reconnect to keep logging and controlling your aircon.' };
+        return;
+      }
+      if (s.saver?.state === 'running' && ++s.saver.failures >= 10) stopSaver(s, 'Daikin could not be reached for ten checks, so Saver stopped. Check your aircon.', true);
+    }
+    const v = s.saver?.state === 'running' ? s.saver : null;
+    s.nextPoll = now() + (v?.failures ? 20000 : v || s.status?.power ? POLL_ACTIVE : POLL_IDLE);
+    // Wake exactly at the end of a phase rather than up to a minute late.
+    const phaseEnd = v && !v.failures ? v.phaseStart + phaseMs(v) : 0;
+    if (phaseEnd > now()) s.nextPoll = Math.min(s.nextPoll, phaseEnd);
   }
   async function exclusive(s, fn) {
     if (s.busy) throw new AppError(409, 'A request is already running. Please wait.');
     s.busy = true;
     try { return await fn(); } finally { s.busy = false; }
   }
-  // One due job at a time per session. Version/identity checks prevent cancelled jobs being rescheduled.
+  // Jobs are serialized with browser commands; only the current schedule can run.
   async function tick() {
     for (const [key, ticket] of loginTickets) if (ticket.expiresAt <= now()) loginTickets.delete(key);
     for (const [id, s] of sessions) {
       if (s.expiresAt <= now()) { if (!s.busy) { forget(s); sessions.delete(id); await persist(); } continue; }
       const timer = s.timer;
+      if (!s.busy && (s.mode === 'live' || s.saver?.state === 'running') && s.nextPoll <= now() && !(timer?.state === 'scheduled' && timer.nextAttempt <= now())) {
+        await exclusive(s, () => poll(s)); await persist();
+      }
       if (!timer || timer.nextAttempt > now() || timer.state !== 'scheduled' || s.busy) continue;
       await exclusive(s, async () => {
         if (now() - timer.dueAt > 120000) {
           timer.state = 'failed';
-          s.lastResult = { at: now(), confirmed: false, message: 'Timer missed while the server was unavailable. Check your aircon manually.' };
+          timer.error = 'Timer missed while the server was unavailable. Check your aircon manually.';
+          s.lastResult = { at: now(), confirmed: false, message: timer.error };
           await persist(); return;
         }
         timer.attempts++;
+        let confirmed = false;
         try {
-          const confirmed = await command(s, false);
-          if (confirmed) { timer.state = 'completed'; await persist(); return; }
+          confirmed = await command(s, false, 'timer');
         } catch (error) {
           s.lastResult = { at: now(), confirmed: false, message: error instanceof AppError ? error.message : 'Shutdown failed.' };
-          if (error.status === 401) { s.token = null; s.mode = null; s.remember = false; timer.state = 'failed'; await persist(); return; }
+          timer.error = s.lastResult.message;
+          if (error.status === 401) { s.token = null; s.mode = null; s.remember = false; timer.state = 'failed'; stopSaver(s, 'Daikin sign-in expired, so Saver stopped.'); await persist(); return; }
         }
-        if (timer.attempts >= 3) timer.state = 'failed';
+        if (confirmed) { timer.state = 'completed'; delete timer.error; stopSaver(s, 'Your shutdown timer turned the aircon off, so Saver stopped.'); }
+        else if (timer.attempts >= 3) {
+          timer.state = 'failed';
+          timer.error ??= 'Daikin has not confirmed aircon off after three attempts. Check your aircon manually.';
+        }
         else timer.nextAttempt = now() + 15000;
         await persist();
       });
@@ -257,21 +408,21 @@ export function createApp({ client = createDaikinClient(), now = Date.now, sessi
         res.end(await readFile(new URL(file, import.meta.url))); return;
       }
       const allowed = { '/api/session': 'GET', '/api/state': 'GET', '/api/connect': 'POST', '/api/temperature': 'POST',
-        '/api/practice': 'POST', '/api/status': 'POST', '/api/power': 'POST', '/api/timer': 'POST', '/api/disconnect': 'POST', '/api/login/start': 'POST', '/api/login/cancel': 'POST' };
+        '/api/practice': 'POST', '/api/status': 'POST', '/api/power': 'POST', '/api/timer': 'POST', '/api/saver': 'POST', '/api/history': 'POST', '/api/usage': 'POST', '/api/disconnect': 'POST', '/api/login/start': 'POST', '/api/login/cancel': 'POST' };
       if (!allowed[url.pathname]) throw new AppError(404, 'Not found.');
       if (req.method !== allowed[url.pathname]) throw new AppError(405, 'Method not allowed.');
       limited('all', 240);
       const match = /(?:^|;\s*)hall_session=([A-Za-z0-9_-]+)/.exec(req.headers.cookie ?? '');
-      let id = match?.[1]; let s = sessions.get(id);
+      let id = sharedRoom ? ROOM_ID : match?.[1]; let s = sessions.get(id);
       if (s && s.expiresAt <= now()) { if (!s.busy) { forget(s); sessions.delete(id); } s = null; }
       if (url.pathname === '/api/session') {
         if (!s) {
           if (sessions.size >= 20) throw new AppError(429, 'Too many local sessions. Restart the demo to clear them.');
-          id = secret(); s = { csrf: secret(), token: null, mode: null, status: null, timer: null,
-            lastResult: null, busy: false, remember: false, loginTicket: null, expiresAt: now() + sessionMs }; sessions.set(id, s);
+          id = sharedRoom ? ROOM_ID : secret(); s = { csrf: secret(), token: null, mode: null, status: null, timer: null,
+            lastResult: null, busy: false, remember: false, loginTicket: null, saver: null, saverConfig: null, lastRow: null, ledger: false, nextPoll: 0, expiresAt: sharedRoom ? Number.MAX_SAFE_INTEGER : now() + sessionMs }; sessions.set(id, s);
         }
         // HTTP loopback only. Production must use HTTPS and a Secure cookie.
-        res.setHeader('Set-Cookie', `hall_session=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor((s.expiresAt - now()) / 1000)}${hostedOrigin ? '; Secure' : ''}`);
+        if (!sharedRoom) res.setHeader('Set-Cookie', `hall_session=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.floor((s.expiresAt - now()) / 1000)}${hostedOrigin ? '; Secure' : ''}`);
         if (hostedOrigin) await persist();
         reply(200, { csrf: s.csrf, ...publicState(s) }); return;
       }
@@ -283,7 +434,7 @@ export function createApp({ client = createDaikinClient(), now = Date.now, sessi
       for await (const chunk of req) { size += chunk.length; if (size > 10000) throw new AppError(413, 'Request too large.'); chunks.push(chunk); }
       let body; try { body = JSON.parse(Buffer.concat(chunks).toString()); } catch { throw new AppError(400, 'Invalid JSON.'); }
       if (!body || typeof body !== 'object' || Array.isArray(body)) throw new AppError(400, 'Expected an object.');
-      let loginTicket;
+      let loginTicket, rows, usage;
       await exclusive(s, async () => {
         if (url.pathname === '/api/login/start') {
           limited('connect', 6);
@@ -294,7 +445,11 @@ export function createApp({ client = createDaikinClient(), now = Date.now, sessi
           return;
         }
         if (url.pathname === '/api/login/cancel') { if (s.loginTicket) loginTickets.delete(s.loginTicket); s.loginTicket = null; return; }
-        if (url.pathname === '/api/disconnect') { forget(s); s.csrf = secret(); return; }
+        if (url.pathname === '/api/disconnect') {
+          if (s.timer?.state === 'scheduled' && body.confirm !== true) throw new AppError(409, 'Removing this connection cancels its pending shutdown. Confirm removal first.');
+          const timer = s.timer ? { ...s.timer, state: s.timer.state === 'scheduled' ? 'cancelled' : s.timer.state } : null;
+          forget(s); s.timer = timer; if (!sharedRoom) s.csrf = secret(); return;
+        }
         if (url.pathname === '/api/connect') {
           limited('connect', 6);
           await connect(s, body.token, body.remember !== false); return;
@@ -303,8 +458,49 @@ export function createApp({ client = createDaikinClient(), now = Date.now, sessi
           if (s.mode === 'live') throw new AppError(409, 'Disconnect the real aircon before entering practice mode.');
           forget(s); s.mode = 'practice'; s.status = { power: false, temperature: 27, setpoint: 25, checkedAt: now() }; return;
         }
+        if (url.pathname === '/api/timer' && body.cancel === true) {
+          if (s.timer?.state === 'scheduled') s.timer = { ...s.timer, state: 'cancelled' }; return;
+        }
         if (!s.mode) throw new AppError(401, 'Connect your aircon first.');
-        if (url.pathname === '/api/status') { s.status = await status(s); return; }
+        if (url.pathname === '/api/history') {
+          if (!Number.isInteger(body.hours) || body.hours < 1 || body.hours > 744) throw new AppError(400, 'Choose a history range from 1 to 744 hours.');
+          rows = await history.read(now() - body.hours * 3600000); return;
+        }
+        if (url.pathname === '/api/usage') {
+          usage = [];
+          for (const id of (await history.months()).sort()) usage.push(...Object.values(await history.month(id) ?? {}));
+          return;
+        }
+        if (url.pathname === '/api/status') { s.status = await status(s); await record(s); return; }
+        if (url.pathname === '/api/saver') {
+          const L = SAVER_LIMITS;
+          const config = { ...SAVER_DEFAULTS, ...s.saverConfig };
+          if (body.enabled !== undefined && typeof body.enabled !== 'boolean') throw new AppError(400, 'Saver must be on or off.');
+          if (body.enabled === undefined && body.settings === undefined) throw new AppError(400, 'Nothing to change.');
+          if (body.settings !== undefined) {
+            const v = body.settings;
+            const minutes = value => Number.isInteger(value) && value >= L.minMinutes && value <= L.maxMinutes;
+            if (!v || !['interval', 'thermostat'].includes(v.kind)) throw new AppError(400, 'Choose fixed intervals or room temperature.');
+            if (!minutes(v.firstMinutes) || !minutes(v.onMinutes) || !minutes(v.offMinutes)) throw new AppError(400, `Choose times from ${L.minMinutes} to ${L.maxMinutes} minutes.`);
+            if (!Number.isInteger(v.coolTo) || !Number.isInteger(v.warmTo) || v.coolTo < L.minTemperature || v.warmTo > L.maxTemperature || v.warmTo <= v.coolTo) {
+              throw new AppError(400, `Choose a switch-off temperature below the switch-on temperature, between ${L.minTemperature} and ${L.maxTemperature}°C.`);
+            }
+            Object.assign(config, { kind: v.kind, firstMinutes: v.firstMinutes, onMinutes: v.onMinutes, offMinutes: v.offMinutes, coolTo: v.coolTo, warmTo: v.warmTo });
+          }
+          if (body.enabled !== undefined) config.enabled = body.enabled;
+          s.saverConfig = config;
+          const running = s.saver?.state === 'running';
+          if (running && config.enabled) { Object.assign(s.saver, saverSettings(s)); s.nextPoll = now(); return; }
+          if (running) {
+            // Switching Saver off means "keep cooling", so end a rest period by turning the aircon back on.
+            const resting = s.saver.phase === 'off';
+            stopSaver(s);
+            if (resting) { limited('power', 12); await command(s, true); }
+            return;
+          }
+          if (body.enabled === true) { s.status = await status(s); if (s.status.power) await beginSaver(s); }
+          return;
+        }
         if (url.pathname === '/api/temperature') {
           if (!Number.isInteger(body.setpoint) || body.setpoint < TEMPERATURE_LIMITS.min || body.setpoint > TEMPERATURE_LIMITS.max) {
             throw new AppError(400, `Choose a whole-number temperature from ${TEMPERATURE_LIMITS.min} to ${TEMPERATURE_LIMITS.max}°C.`);
@@ -322,35 +518,49 @@ export function createApp({ client = createDaikinClient(), now = Date.now, sessi
           }
           const confirmed = s.status.setpoint === body.setpoint;
           s.lastResult = { at: now(), confirmed, message: confirmed ? `Daikin reports target temperature ${body.setpoint}°C.` : 'Temperature command sent; Daikin has not confirmed the target yet.' };
-          // Unlike manual power commands, adjusting temperature retains the sleep timer.
+          // Adjusting temperature retains the sleep timer.
           return;
         }
         if (url.pathname === '/api/power') {
           if (typeof body.power !== 'boolean') throw new AppError(400, 'Power must be true or false.');
-          limited('power', 12); s.timer = null;
-          try { await command(s, body.power); } finally { await persist(); }
+          limited('power', 12);
+          // Turn off always ends Saver. Turn on starts a fresh cooling phase while Saver is enabled.
+          const saving = body.power && (s.saverConfig?.enabled ?? SAVER_DEFAULTS.enabled);
+          if (!saving) stopSaver(s);
+          const confirmed = await command(s, body.power);
+          if (saving && confirmed) await beginSaver(s);
+          if (!body.power && confirmed && s.timer?.state === 'scheduled') s.timer = { ...s.timer, state: 'completed', completedBy: 'manual' };
           return;
         }
         if (url.pathname === '/api/timer') {
-          if (body.cancel === true) { s.timer = null; return; }
-          if (!Number.isInteger(body.minutes) || body.minutes < 1 || body.minutes > 480) throw new AppError(400, 'Choose a timer from 1 to 480 minutes.');
-          const dueAt = now() + body.minutes * 60000;
+          const hasMinutes = Object.hasOwn(body, 'minutes');
+          const hasDue = Object.hasOwn(body, 'dueAt');
+          if (hasMinutes === hasDue) throw new AppError(400, 'Choose a duration or a shutdown time, not both.');
+          if (hasMinutes && (!Number.isInteger(body.minutes) || body.minutes < 1 || body.minutes > 1440)) throw new AppError(400, 'Choose a timer from 1 to 1440 minutes.');
+          const dueAt = hasMinutes ? now() + body.minutes * 60000 : body.dueAt;
+          if (!Number.isSafeInteger(dueAt) || dueAt <= now() || dueAt > now() + 86400000) throw new AppError(400, 'Choose a future shutdown within the next 24 hours.');
           if (dueAt >= s.expiresAt) throw new AppError(400, 'The timer would outlive your session. Reconnect in a new session.');
-          s.timer = { dueAt, nextAttempt: dueAt, attempts: 0, state: 'scheduled' }; return;
+          s.timer = { id: secret(), dueAt, timezone: 'Asia/Singapore', nextAttempt: dueAt, attempts: 0, state: 'scheduled' }; return;
         }
       });
       await persist();
-      reply(200, { csrf: s.csrf, ...publicState(s), ...(loginTicket ? { loginTicket } : {}) });
+      reply(200, { csrf: s.csrf, ...publicState(s), ...(loginTicket ? { loginTicket } : {}), ...(rows ? { history: rows } : {}), ...(usage ? { usage } : {}) });
     } catch (error) {
       if (error.status === 401 && !['/api/connect', '/api/login/capture'].includes(req.url)) {
-        const id = /(?:^|;\s*)hall_session=([A-Za-z0-9_-]+)/.exec(req.headers.cookie ?? '')?.[1];
+        const id = sharedRoom ? ROOM_ID : /(?:^|;\s*)hall_session=([A-Za-z0-9_-]+)/.exec(req.headers.cookie ?? '')?.[1];
         const s = sessions.get(id);
-        if (s?.mode === 'live') { forget(s); await persist().catch(() => {}); }
+        if (s?.mode === 'live') {
+          s.token = null; s.mode = null; s.remember = false;
+          stopSaver(s, 'Daikin sign-in expired, so Saver stopped. The aircon was left as it was.');
+          if (s.timer?.state === 'scheduled') s.timer = { ...s.timer, state: 'failed', error: 'Daikin sign-in expired before the shutdown could be completed. Reconnect and set a new shutdown.' };
+          s.lastResult = { at: now(), confirmed: false, message: 'Daikin sign-in expired. Reconnect; any pending shutdown could not be completed.' };
+          await persist().catch(() => {});
+        }
       }
       reply(error instanceof AppError ? error.status : 500, { error: error instanceof AppError ? error.message : 'Request failed. Please try again.' });
     }
   }
-  return { handler, tick, nextAlarm: () => Math.min(...[...sessions.values()].flatMap(s => [s.expiresAt, ...(s.timer?.state === 'scheduled' ? [s.timer.nextAttempt] : [])])), close: () => { for (const s of sessions.values()) forget(s); sessions.clear(); } };
+  return { handler, tick, csrf: () => sessions.get(ROOM_ID)?.csrf, nextAlarm: () => Math.min(...[...sessions.values()].flatMap(s => [s.expiresAt, ...(s.timer?.state === 'scheduled' ? [s.timer.nextAttempt] : [])])), close: () => { for (const s of sessions.values()) forget(s); sessions.clear(); } };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
@@ -358,7 +568,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   if (!Number.isInteger(port) || port < 1024 || port > 65535) throw new Error('PORT must be between 1024 and 65535.');
   const directory = join(homedir(), '.local', 'share', 'better-hall-aircon');
   const vault = await createVault(directory);
-  const app = createApp({ vault, initialRecords: await vault.load() });
+  const app = createApp({ vault, initialRecords: await vault.load(), history: fileHistory(join(directory, 'history.jsonl')) });
   const server = http.createServer(app.handler);
   server.on('error', error => {
     clearInterval(scheduler); app.close();

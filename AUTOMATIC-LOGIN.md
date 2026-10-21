@@ -20,7 +20,7 @@ This uses file-based key protection, **not an OS keychain**. Someone who can rea
 
 The browser keeps an HTTP-only, SameSite=Strict cookie with a 30-day local expiry. The same browser remains connected across server restarts until the local session or Daikin token expires. Restart rotates CSRF secrets. A rejected upstream token clears the saved connection; no verified token-refresh API exists, so another official sign-in may be needed. Unchecking **Keep me connected** keeps the token in memory only.
 
-Disconnect clears the local connection and pending timer. It does not revoke the upstream token or turn the aircon off. Backups may retain old credentials; the app does not claim secure disk erasure.
+Remove connection clears the local connection and cancels its pending timer after confirmation. It does not revoke the upstream token or turn the aircon off. Backups may retain old credentials; the app does not claim secure disk erasure.
 
 Timers survive restarts, but the computer must stay awake/online and the server must run. A timer overdue by more than two minutes is marked failed, rather than sending an off command hours later. A completed or cancelled schedule does not run again.
 

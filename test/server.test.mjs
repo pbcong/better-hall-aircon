@@ -179,12 +179,12 @@ test('unremembered credentials are not saved; overdue recovered timers do not se
   await f.request('/api/timer', { minutes: 1 }); f.advance(180001); await f.app.tick();
   assert.deepEqual(f.commands, []); assert.equal((await f.request('/api/state')).value.timer.state, 'failed');
 });
-test('failed power command still saves cancellation, preventing stale timer recovery', async t => {
+test('failed power command preserves the saved shutdown', async t => {
   let records = []; const vault = { save: async value => { records = structuredClone(value); } };
   const f = await fixture(t, { vault }); await f.request('/api/session');
   await f.request('/api/connect', { token: TOKEN }); await f.request('/api/timer', { minutes: 1 });
   f.fail(new Error('offline')); assert.equal((await f.request('/api/power', { power: true })).code, 500);
-  assert.equal(records[0].timer, null);
+  assert.equal(records[0].timer.state, 'scheduled');
 });
 test('vault encrypts, survives reopen, authenticates ciphertext and enforces private key permissions', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'hall-vault-test-'));
@@ -326,15 +326,17 @@ test('practice is isolated from Daikin, cancellation and disconnect stop pending
   await f.request('/api/power', { power: true }); await f.request('/api/timer', { minutes: 1 });
   await f.request('/api/timer', { cancel: true }); f.advance(61000); await f.app.tick();
   assert.equal((await f.request('/api/state')).value.status.power, true);
-  await f.request('/api/timer', { minutes: 1 }); await f.request('/api/disconnect', {});
+  await f.request('/api/timer', { minutes: 1 });
+  assert.equal((await f.request('/api/disconnect', {})).code, 409);
+  await f.request('/api/disconnect', { confirm: true });
   f.advance(61000); await f.app.tick();
   assert.equal((await f.request('/api/state')).value.connected, false); assert.deepEqual(f.commands, []);
 });
-test('shutdown retries are bounded; manual power cancels schedules', async t => {
+test('shutdown retries are bounded; turning on preserves schedules', async t => {
   const f = await fixture(t); await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
   await f.request('/api/timer', { minutes: 1 });
   await f.request('/api/power', { power: true });
-  assert.equal((await f.request('/api/state')).value.timer, null);
+  assert.equal((await f.request('/api/state')).value.timer.state, 'scheduled');
   await f.request('/api/timer', { minutes: 1 });
   f.fail(new Error('PRIVATE'));
   f.advance(60000); await f.app.tick();
@@ -358,11 +360,11 @@ test('busy sessions reject concurrent cancellation rather than silently losing i
   assert.equal((await f.request('/api/timer', { cancel: true })).code, 409);
   release(); await ticking;
   assert.equal((await f.request('/api/timer', { cancel: true })).code, 200);
-  assert.equal((await f.request('/api/state')).value.timer, null);
+  assert.equal((await f.request('/api/state')).value.timer.state, 'cancelled');
 });
 test('static interface and assets are served with a restrictive content policy', async t => {
   const f = await fixture(t);
-  for (const path of ['/', '/app.js', '/style.css', '/favicon.svg']) {
+  for (const path of ['/', '/app.js', '/style.css', '/favicon.svg', '/apple-touch-icon.png']) {
     const response = await f.request(path);
     assert.equal(response.code, 200); assert.ok(response.value.length > 50);
     assert.equal(response.headers.get('cache-control'), 'no-store');
@@ -393,4 +395,235 @@ test('expired upstream token stops shutdown retries and disables controls', asyn
   const state = (await f.request('/api/state')).value;
   assert.equal(state.connected, false); assert.equal(state.timer.state, 'failed'); assert.equal(attempts, 1);
   assert.equal((await f.request('/api/power', { power: true })).code, 401);
+});
+test('cloud transport reports safe step and timeout diagnostics and never follows redirects', async () => {
+  const client = createDaikinClient(async () => { const error = new Error('private credential'); error.name = 'TimeoutError'; throw error; }, { cloud: true });
+  await assert.rejects(() => client.exchange(TOKEN), /login exchange \(timed out\)/);
+  await assert.rejects(() => client.status(TOKEN), /status check \(timed out\)/);
+  const redirectClient = createDaikinClient(async (_url, init) => {
+    assert.equal(init.redirect, 'manual'); return new Response('', { status: 302, headers: { location: 'https://other.example' } });
+  }, { cloud: true });
+  await assert.rejects(() => redirectClient.status(TOKEN), /No redirect was followed/);
+});
+
+
+test('absolute shutdowns are validated against server time; invalid replacement preserves the job', async t => {
+  const f = await fixture(t); await f.request('/api/session'); await f.request('/api/practice', {});
+  const now = (await f.request('/api/state')).value.serverNow;
+  const dueAt = now + 12 * 3600000;
+  const scheduled = await f.request('/api/timer', { dueAt });
+  assert.equal(scheduled.code, 200); assert.equal(scheduled.value.timer.dueAt, dueAt);
+  for (const payload of [{ dueAt: now }, { dueAt: now - 1 }, { dueAt: dueAt + 86400000 }, { dueAt: 'tomorrow' }, { dueAt, minutes: 1 }, {}, { minutes: 1441 }]) {
+    assert.equal((await f.request('/api/timer', payload)).code, 400);
+    assert.deepEqual((await f.request('/api/state')).value.timer, scheduled.value.timer);
+  }
+  assert.equal((await f.request('/api/timer', { minutes: 1440 })).code, 200);
+});
+test('manual confirmed off resolves shutdown; unconfirmed and failed off preserve it', async t => {
+  const f = await fixture(t); await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
+  await f.request('/api/timer', { minutes: 1 }); f.fail(new Error('private'));
+  assert.equal((await f.request('/api/power', { power: false })).code, 500);
+  assert.equal((await f.request('/api/state')).value.timer.state, 'scheduled');
+  f.fail(null); await f.request('/api/power', { power: false });
+  assert.equal((await f.request('/api/state')).value.timer.completedBy, 'manual');
+  const unconfirmed = await fixture(t, { client: { status: async () => ({ power: true }), control: async () => {} } });
+  await unconfirmed.request('/api/session'); await unconfirmed.request('/api/connect', { token: TOKEN });
+  await unconfirmed.request('/api/timer', { minutes: 1 }); await unconfirmed.request('/api/power', { power: false });
+  assert.equal((await unconfirmed.request('/api/state')).value.timer.state, 'scheduled');
+});
+test('token expiry during status retains failed outcome and reconnect never resurrects the failed job', async t => {
+  const f = await fixture(t); await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
+  await f.request('/api/timer', { minutes: 1 });
+  const expired = new Error('private'); expired.status = 401; f.fail(expired);
+  assert.equal((await f.request('/api/status', {})).code, 500);
+  const state = (await f.request('/api/state')).value;
+  assert.equal(state.connected, false); assert.equal(state.timer.state, 'failed');
+  f.fail(null); await f.request('/api/connect', { token: TOKEN });
+  assert.equal((await f.request('/api/state')).value.timer.state, 'failed');
+  f.advance(60000); await f.app.tick(); assert.deepEqual(f.commands, []);
+});
+test('schedule commit failure restores the previous accepted schedule', async t => {
+  let fail = false; let records;
+  const f = await fixture(t, { vault: { save: async value => { if (fail) throw new Error('private'); records = structuredClone(value); } } });
+  await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
+  const old = (await f.request('/api/timer', { minutes: 1 })).value.timer;
+  fail = true; assert.equal((await f.request('/api/timer', { minutes: 10 })).code, 503);
+  assert.deepEqual((await f.request('/api/state')).value.timer, old); assert.deepEqual(records[0].timer, old);
+  fail = false; f.advance(60000); await f.app.tick(); assert.deepEqual(f.commands, [false]);
+});
+
+test('failed shutdown reason survives subsequent successful controls', async t => {
+  const f = await fixture(t); await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
+  await f.request('/api/timer', { minutes: 1 }); f.advance(180001); await f.app.tick();
+  const failed = (await f.request('/api/state')).value.timer;
+  assert.equal(failed.state, 'failed'); assert.match(failed.error, /missed/);
+  await f.request('/api/power', { power: true });
+  assert.equal((await f.request('/api/state')).value.timer.error, failed.error);
+});
+
+test('repeated failed commits cannot mutate the accepted rollback snapshot', async t => {
+  let fail = false;
+  const f = await fixture(t, { vault: { save: async () => { if (fail) throw new Error('private'); } } });
+  await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
+  const accepted = (await f.request('/api/timer', { minutes: 1 })).value.timer;
+  fail = true; await f.request('/api/timer', { minutes: 10 });
+  f.advance(60000); await assert.rejects(f.app.tick(), /save/);
+  assert.deepEqual((await f.request('/api/state')).value.timer, accepted);
+  await assert.rejects(f.app.tick(), /save/);
+  assert.deepEqual((await f.request('/api/state')).value.timer, accepted);
+  fail = false; await f.app.tick();
+  assert.equal((await f.request('/api/state')).value.timer.state, 'completed');
+});
+test('status keeps balance and fan but still no identity', () => {
+  const normalized = normalizeStatus({ data: { firstname: 'PRIVATE', email: 'PRIVATE', balance: 4.76, aircon: { power: 1, current_temperature: 25, setpoint: 22, fanstep: 'H', aircon_code: 'PRIVATE' } } });
+  assert.equal(normalized.balance, 4.76); assert.equal(normalized.fan, 'H');
+  assert.ok(!JSON.stringify(normalized).includes('PRIVATE'));
+});
+const saverSettings = (onMinutes, offMinutes, extra = {}) => ({ settings: { kind: 'interval', firstMinutes: onMinutes, onMinutes, offMinutes, coolTo: 24, warmTo: 26, ...extra } });
+test('Saver is on by default: Turn on cools in cycles, logs every switch, and Turn off ends it', async t => {
+  const f = await fixture(t); await f.request('/api/session');
+  const connected = (await f.request('/api/connect', { token: TOKEN })).value;
+  assert.equal(connected.saverConfig.enabled, true); assert.equal(connected.saver, null);
+  assert.equal((await f.request('/api/saver', saverSettings(2, 5))).code, 400);
+  assert.equal((await f.request('/api/saver', saverSettings(5, 3, { coolTo: 26 }))).code, 400);
+  assert.equal((await f.request('/api/saver', {})).code, 400);
+  assert.equal((await f.request('/api/saver', saverSettings(5, 3), { 'X-CSRF-Token': 'forged' })).code, 403);
+  // Saving settings while the aircon is off never switches anything on.
+  assert.equal((await f.request('/api/saver', saverSettings(5, 3))).value.saver, null); assert.deepEqual(f.commands, []);
+  const started = (await f.request('/api/power', { power: true })).value;
+  assert.equal(started.saver.state, 'running'); assert.equal(started.saver.onMinutes, 5); assert.deepEqual(f.commands, [true]);
+  for (let minute = 0; minute < 4; minute++) { f.advance(60000); await f.app.tick(); }
+  assert.deepEqual(f.commands, [true]);
+  f.advance(60000); await f.app.tick(); assert.deepEqual(f.commands, [true, false]);
+  assert.equal((await f.request('/api/state')).value.saver.phase, 'off');
+  f.advance(179999); await f.app.tick(); assert.deepEqual(f.commands, [true, false]);
+  f.advance(1); await f.app.tick(); assert.deepEqual(f.commands, [true, false, true]);
+  const rows = (await f.request('/api/history', { hours: 1 })).value.history;
+  assert.deepEqual(rows.filter(row => row.e).map(row => row.e), ['connect', 'manual-on', 'saver-start', 'saver-off', 'saver-on']);
+  const stopped = (await f.request('/api/power', { power: false })).value;
+  assert.equal(stopped.saver.state, 'stopped'); assert.equal(stopped.saver.reason, null); assert.equal(stopped.saverConfig.enabled, true);
+  f.advance(600000); await f.app.tick(); assert.deepEqual(f.commands, [true, false, true, false]);
+});
+test('Saver switch: off keeps the aircon cooling (ending a rest), on starts cycling only if already on', async t => {
+  const f = await fixture(t); await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
+  await f.request('/api/saver', saverSettings(3, 10)); await f.request('/api/power', { power: true });
+  f.advance(180000); await f.app.tick(); assert.deepEqual(f.commands, [true, false]);
+  const off = (await f.request('/api/saver', { enabled: false })).value;
+  assert.equal(off.saverConfig.enabled, false); assert.equal(off.saver.state, 'stopped'); assert.equal(off.status.power, true);
+  f.advance(3600000); await f.app.tick(); assert.deepEqual(f.commands, [true, false, true]);
+  // Disabled: Turn on runs nonstop.
+  await f.request('/api/power', { power: false }); await f.request('/api/power', { power: true });
+  assert.equal((await f.request('/api/state')).value.saver.state, 'stopped');
+  const on = (await f.request('/api/saver', { enabled: true })).value;
+  assert.equal(on.saver.state, 'running'); assert.equal(on.saver.phase, 'on');
+  // New settings apply to the running cycle without restarting it.
+  const changed = (await f.request('/api/saver', saverSettings(20, 4))).value;
+  assert.equal(changed.saver.onMinutes, 20); assert.equal(changed.saver.id, on.saver.id);
+  await f.request('/api/power', { power: false }); const count = f.commands.length;
+  assert.equal((await f.request('/api/saver', { enabled: false })).value.saver.state, 'stopped');
+  assert.equal((await f.request('/api/saver', { enabled: true })).value.saver.state, 'stopped'); assert.equal(f.commands.length, count);
+});
+test('temperature Saver waits for the room reading and respects minimum phase times', async t => {
+  let room = 27, power = false; const commands = [];
+  const client = { status: async () => ({ power, temperature: room, setpoint: 22, balance: 5, checkedAt: 0 }), control: async (_token, next) => { commands.push(next); power = next; } };
+  const f = await fixture(t, { client }); await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
+  await f.request('/api/saver', saverSettings(3, 3, { kind: 'thermostat' })); await f.request('/api/power', { power: true });
+  room = 24; f.advance(120000); await f.app.tick(); assert.deepEqual(commands, [true]);
+  room = 25; f.advance(120000); await f.app.tick(); assert.deepEqual(commands, [true]);
+  room = 24; f.advance(60000); await f.app.tick(); assert.deepEqual(commands, [true, false]);
+  room = 26; f.advance(60000); await f.app.tick(); assert.deepEqual(commands, [true, false]);
+  f.advance(120000); await f.app.tick(); assert.deepEqual(commands, [true, false, true]);
+});
+test('Saver never fights an off made elsewhere, stops with the shutdown timer and on expired sign-in', async t => {
+  let power = false; let reject = false; const commands = [];
+  const client = { status: async () => { if (reject) throw Object.assign(new Error('expired'), { status: 401 }); return { power, temperature: 25, setpoint: 22, balance: 5, checkedAt: 0 }; }, control: async (_token, next) => { commands.push(next); power = next; } };
+  const f = await fixture(t, { client }); await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
+  await f.request('/api/saver', saverSettings(5, 5)); await f.request('/api/power', { power: true });
+  power = false; f.advance(60000); await f.app.tick();
+  let state = (await f.request('/api/state')).value;
+  assert.equal(state.saver.state, 'stopped'); assert.match(state.saver.reason, /elsewhere/); assert.deepEqual(commands, [true]);
+  await f.request('/api/power', { power: true }); await f.request('/api/timer', { minutes: 2 });
+  f.advance(120000); await f.app.tick();
+  state = (await f.request('/api/state')).value;
+  assert.equal(state.timer.state, 'completed'); assert.equal(state.saver.state, 'stopped'); assert.equal(power, false);
+  f.advance(3600000); await f.app.tick(); assert.deepEqual(commands, [true, true, false]);
+  await f.request('/api/power', { power: true });
+  reject = true; f.advance(60000); await f.app.tick();
+  state = (await f.request('/api/state')).value;
+  assert.equal(state.connected, false); assert.equal(state.saver.state, 'stopped');
+});
+test('Saver retries an unconfirmed switch-off and gives up after five tries', async t => {
+  let power = false; let stuck = false; const commands = [];
+  const client = { status: async () => ({ power, temperature: 25, setpoint: 22, balance: 5, checkedAt: 0 }), control: async (_token, next) => { commands.push(next); if (!stuck) power = next; } };
+  const f = await fixture(t, { client }); await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
+  await f.request('/api/saver', saverSettings(3, 3)); await f.request('/api/power', { power: true });
+  stuck = true; f.advance(180000);
+  for (let i = 0; i < 8; i++) { await f.app.tick(); f.advance(20000); }
+  const state = (await f.request('/api/state')).value;
+  assert.equal(state.saver.state, 'stopped'); assert.match(state.saver.reason, /five tries/);
+  assert.equal(commands.filter(command => command === false).length, 5);
+});
+test('remembered Saver, its settings and next wake-up survive a restart', async t => {
+  let saved = [];
+  const vault = { save: async records => { saved = structuredClone(records); } };
+  const f = await fixture(t, { vault }); await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
+  await f.request('/api/saver', saverSettings(5, 7)); await f.request('/api/power', { power: true });
+  assert.equal(saved[0].saver.state, 'running'); assert.equal(saved[0].saverConfig.offMinutes, 7); assert.ok(saved[0].nextPoll > 1700000000000);
+  let power = true; const commands = [];
+  const client = { status: async () => ({ power, temperature: 25, setpoint: 22, balance: 5, checkedAt: 0 }), control: async (_token, next) => { commands.push(next); power = next; } };
+  let clock = 1700000000000 + 300000;
+  const restarted = createApp({ client, now: () => clock, pause: async () => {}, vault, initialRecords: saved });
+  t.after(() => restarted.close());
+  await restarted.tick(); assert.deepEqual(commands, [false]);
+});
+test('Saver cools longer first, then holds with the short cycle; defaults are 10 then 5 on, 5 rest', async t => {
+  const f = await fixture(t); await f.request('/api/session');
+  const config = (await f.request('/api/connect', { token: TOKEN })).value.saverConfig;
+  assert.deepEqual([config.firstMinutes, config.onMinutes, config.offMinutes], [10, 5, 5]);
+  assert.equal((await f.request('/api/saver', saverSettings(5, 5, { firstMinutes: 1 }))).code, 400);
+  await f.request('/api/power', { power: true });
+  f.advance(599999); await f.app.tick(); assert.deepEqual(f.commands, [true]);
+  f.advance(1); await f.app.tick(); assert.deepEqual(f.commands, [true, false]);
+  f.advance(300000); await f.app.tick(); assert.deepEqual(f.commands, [true, false, true]);
+  f.advance(299999); await f.app.tick(); assert.deepEqual(f.commands, [true, false, true]);
+  f.advance(1); await f.app.tick(); assert.deepEqual(f.commands, [true, false, true, false]);
+});
+test('day totals are kept from every reading, rebuilt once from earlier raw rows, and returned for any range', async t => {
+  const history = (await import('../server.mjs')).memoryHistory();
+  const start = Date.parse('2026-10-13T23:50:00+08:00');
+  // Readings logged before day totals existed.
+  await history.append({ t: start - 120000, p: 1, r: 25, s: 22, b: 5 }); await history.append({ t: start - 60000, p: 1, r: 25, s: 22, b: 5 });
+  let power = true, balance = 5, clock = start;
+  const client = { status: async () => ({ power, temperature: 24, setpoint: 22, balance, checkedAt: 0 }), control: async (_token, next) => { if (power && !next) balance = 4.9; power = next; } };
+  const f = await fixture(t, { client, history, now: () => clock });
+  await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN }); await f.request('/api/saver', { enabled: false });
+  for (let minute = 0; minute < 20; minute++) { clock += 60000; await f.app.tick(); }
+  await f.request('/api/power', { power: false });
+  const days = (await f.request('/api/usage', {})).value.usage;
+  assert.deepEqual(days.map(day => day.date), ['2026-10-13', '2026-10-14']);
+  assert.equal(days[0].onMs, 12 * 60000); assert.equal(days[1].onMs, 10 * 60000);
+  assert.equal(days[0].charged, 0); assert.equal(days[1].charged, 0.1);
+  assert.deepEqual(await history.months(), ['2026-10']);
+});
+test('an aircon found running without Saver starts cycling at the next reading, unless Saver is off or gave up', async t => {
+  let power = true, stuck = false; const commands = [];
+  const client = { status: async () => ({ power, temperature: 25, setpoint: 22, balance: 5, checkedAt: 0 }), control: async (_token, next) => { commands.push(next); if (!stuck) power = next; } };
+  const f = await fixture(t, { client }); await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
+  assert.equal((await f.request('/api/state')).value.saver, null);
+  f.advance(60000); await f.app.tick();
+  let state = (await f.request('/api/state')).value;
+  assert.equal(state.saver.state, 'running'); assert.deepEqual(commands, []);
+  f.advance(600000); await f.app.tick(); assert.deepEqual(commands, [false]);
+  // Switched on again from the official app during a rest: adopted, not restarted.
+  power = true; f.advance(60000); await f.app.tick();
+  assert.equal((await f.request('/api/state')).value.saver.phase, 'on');
+  // After giving up on unconfirmed commands, Saver does not restart itself.
+  stuck = true; f.advance(300000);
+  for (let i = 0; i < 8; i++) { await f.app.tick(); f.advance(20000); }
+  state = (await f.request('/api/state')).value;
+  assert.equal(state.saver.blocked, true); const count = commands.length;
+  f.advance(3600000); await f.app.tick(); assert.equal(commands.length, count);
+  // Switched off in settings: a running aircon is left alone.
+  stuck = false; await f.request('/api/saver', { enabled: false }); await f.request('/api/power', { power: true });
+  f.advance(3600000); await f.app.tick(); assert.equal((await f.request('/api/state')).value.saver.state, 'stopped');
 });

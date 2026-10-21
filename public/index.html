@@ -2,26 +2,41 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Local NTU hall aircon controls and sleep timer.">
+  <meta name="description" content="NTU hall aircon controls and scheduled shutdown.">
   <title>Hall Aircon · Sleep timer</title><link rel="icon" href="/favicon.svg">
-  <link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script>
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png"><meta name="apple-mobile-web-app-title" content="Aircon">
+  <meta name="theme-color" content="#f4f6f9" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#11151c" media="(prefers-color-scheme: dark)">
+  <link rel="stylesheet" href="/style.css"><script src="/app.js" type="module"></script>
 </head>
 <body>
   <main>
-    <header><a class="brand" href="/">hall<span> / </span>aircon</a><span class="badge">Local demo</span></header>
+    <header class="topbar"><a class="brand" href="/"><img src="/favicon.svg" width="28" height="28" alt=""><span>hall<span>/</span>aircon</span></a><span id="hosting-badge" class="badge">Hall Aircon</span></header>
     <section class="intro"><p class="eyebrow">A cooler night</p><h1 id="intro-title">Sleep well.<br>We’ll handle the off.</h1><p id="intro-description">Room controls and a shutdown timer, in one place.</p></section>
     <div id="notice" role="status" aria-live="polite" hidden></div>
-    <div id="loading" role="status"><span class="skeleton"></span><span class="skeleton"></span><p>Restoring your connection…</p></div>
+    <div id="loading" role="status"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton"></span><p>Restoring your connection…</p></div>
+    <section id="access" class="card" hidden>
+      <h2>Welcome back</h2><p>Sign in once to use your room controls.</p>
+      <form id="access-form">
+        <input name="username" value="owner" autocomplete="username" readonly hidden>
+        <label for="access-password">App password</label><input id="access-password" name="password" type="password" autocomplete="current-password" required maxlength="1024">
+        <label class="remember"><input id="access-remember" type="checkbox" checked> Remember this device for 30 days</label>
+        <button class="primary" type="submit">Sign in</button>
+      </form><p class="fine">Use your private app password. Your NTU sign-in is separate.</p>
+    </section>
+    <section id="migration" class="card" hidden><h2>Choose your saved connection</h2>
+      <p>Older browsers saved separate connections. Choose which connection and shutdown this app should keep. Other pending shutdowns will be cancelled when you choose.</p>
+      <div id="migration-options"></div>
+    </section>
     <section id="connect" class="card" hidden>
       <div class="card-heading"><h2>Connect your aircon</h2></div>
       <p>Sign in on NTU’s official page. Your password stays with NTU.</p>
-      <label class="remember"><input id="remember" type="checkbox" checked> Keep me connected on this computer</label>
+      <label id="connection-remember" class="remember"><input id="remember" type="checkbox" checked> Keep me connected on this computer</label>
       <button id="automatic-login" class="primary">Sign in with NTU</button>
       <p id="helper-status" class="fine">Checking for the login helper…</p>
       <p id="login-waiting" role="status" hidden>Finish signing in on NTU’s page. This app will connect automatically.</p>
       <button id="cancel-login" class="text-button" hidden>Cancel sign-in</button>
-      <details><summary>One-time automatic login setup (Chrome / Edge)</summary><p>Open chrome://extensions or edge://extensions, enable Developer mode, click Load unpacked, and select this project’s extension folder. Then refresh this page.</p><p>The helper watches only this local app and Daikin’s return page. It has no permission to read NTU’s login page. Automatic capture in Safari on iPhone is not available in this local demo.</p></details>
-      <details><summary>Connect manually instead</summary>
+      <details id="helper-setup"><summary>One-time automatic login setup (Chrome / Edge)</summary><p>Open chrome://extensions or edge://extensions, enable Developer mode, click Load unpacked, and select this project’s extension folder. Then refresh this page.</p><p>The helper watches only this local app and Daikin’s return page. It has no permission to read NTU’s login page. Automatic capture in Safari on iPhone is not available in this local demo.</p></details>
+      <details id="manual-login"><summary id="manual-summary">Connect manually instead</summary>
       <a href="https://cmsntu-prod.daikinpayu.com/adfs/login" target="_blank" rel="noopener noreferrer">Open official NTU sign-in</a>
       <p class="fine">After sign-in, Daikin may show “Cannot GET /adfs/saml/redirect/…”. Copy that tab’s full address and paste it below.</p>
       <form id="connect-form">
@@ -30,24 +45,30 @@
         <button type="submit" class="primary">Connect securely</button>
       </form>
       </details>
-      <p class="fine">Remembered aircon tokens are encrypted locally. Disconnect deletes the saved connection and timers. Your NTU password is never saved.</p>
-      <details><summary>What happens after NTU sign-in?</summary><p>The button starts at Daikin, then opens loginfs.ntu.edu.sg. Enter your password only on NTU’s page. Daikin handles the NTU sign-in response.</p><p>The final address ends in /adfs/saml/redirect/ followed by a login code. The “Cannot GET” message can be ignored. Copy the full address into this form. The local server exchanges that code with Daikin for an aircon token, then checks your aircon status before enabling controls.</p><p>The pasted address is parsed locally and never opened. Only the login code is sent to Daikin’s fixed authentication endpoint. Never paste your NTU password or SSO cookie. Keep the full return URL out of chat and screenshots. Practice mode works without signing in.</p></details>
+      <p id="connection-storage" class="fine">Remembered aircon tokens are encrypted locally. Disconnect deletes the saved connection and timers. Your NTU password is never saved.</p>
+      <details><summary>What happens after NTU sign-in?</summary><p>The button starts at Daikin, then opens loginfs.ntu.edu.sg. Enter your password only on NTU’s page. Daikin handles the NTU sign-in response.</p><p>The final address ends in /adfs/saml/redirect/ followed by a login code. The “Cannot GET” message can be ignored. Copy the full address into this form. The server exchanges that code with Daikin for an aircon token, then checks your aircon status before enabling controls.</p><p>The pasted address is parsed by the server and never opened. Only the login code is sent to Daikin’s fixed authentication endpoint. Never paste your NTU password or SSO cookie. Keep the full return URL out of chat and screenshots. Practice mode works without signing in.</p></details>
       <div class="divider"><span>Just exploring?</span></div><button id="practice" class="secondary">Try practice mode</button>
     </section>
     <section id="controls" hidden>
-      <div class="connection"><span id="mode">Practice mode</span><button id="disconnect" class="text-button">Disconnect</button></div>
+      <div class="connection"><span id="mode" class="status-pill">Practice mode</span><button id="disconnect" class="text-button">Remove connection</button></div>
       <p id="practice-note" class="practice-note" hidden>Simulated aircon. These controls do not affect your room.</p>
       <div class="control-grid">
-      <div class="card climate">
+      <div id="climate" class="card climate">
         <div class="card-heading"><h2>Your aircon</h2><button id="refresh" class="text-button">Refresh</button></div>
         <div class="temperature-display"><div class="reading"><span id="temperature">--</span><span class="unit">°C</span></div>
-        <p class="reading-label">Room temperature</p></div><p id="power-state" class="power-state">Checking status…</p>
+        <p class="reading-label">Room temperature</p></div><p id="power-state" class="power-state" aria-live="polite">Checking status…</p>
         <div class="power-buttons"><button id="on" class="primary">Turn on</button><button id="off" class="secondary">Turn off</button></div>
         <p id="checked" class="fine"></p>
+        <div id="saver-row" class="saver-row">
+          <div class="saver-text"><span id="saver-label" class="saver-title">Saver</span><span id="saver-summary" class="fine"></span></div>
+          <button id="saver-settings" type="button" class="text-button">Settings</button>
+          <button id="saver-switch" type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="saver-label" aria-describedby="saver-summary"><span></span></button>
+          <p id="saver-stopped" class="fine" role="status" hidden></p>
+        </div>
         <form id="temperature-form">
           <label for="setpoint">Target temperature (°C)</label>
           <div class="temperature-row"><div class="temperature-input">
-            <button id="temperature-down" type="button" class="secondary" aria-label="Lower target temperature">-</button>
+            <button id="temperature-down" type="button" class="secondary" aria-label="Lower target temperature">−</button>
             <input id="setpoint" type="number" min="22" max="30" step="1" value="25" required aria-describedby="temperature-help temperature-current">
             <button id="temperature-up" type="button" class="secondary" aria-label="Raise target temperature">+</button>
           </div><button id="apply-temperature" class="secondary" type="submit">Apply</button></div>
@@ -58,16 +79,72 @@
       <div class="card timer-card">
         <div class="card-heading"><h2>Sleep timer</h2><span class="small-label">Auto off</span></div>
         <p>Let the room cool. Then switch off for the rest of the night.</p>
-        <form id="timer-form"><div class="presets" aria-label="Timer duration"><button type="button" data-minutes="60">1 hour</button><button type="button" data-minutes="120" class="selected">2 hours</button><button type="button" data-minutes="180">3 hours</button></div>
-          <label for="minutes">Or choose minutes</label><div class="timer-input"><input id="minutes" type="number" min="1" max="480" value="120" aria-describedby="timer-help" required><span>minutes</span></div>
-          <button class="primary" type="submit">Set shutdown timer</button>
+        <div id="timer-result" role="status" aria-live="polite" hidden>
+          <p id="timer-state" class="timer-state"></p>
+          <p class="timer-when"><span id="timer-time" class="timer-time"></span><span id="timer-day" class="timer-day"></span></p>
+          <p id="countdown" aria-live="off"></p><p id="timer-saved" class="fine"></p>
+          <p id="timer-failure" role="status" class="fine" hidden></p>
+          <div class="timer-actions"><button id="change-timer" class="text-button">Change</button><button id="cancel" class="text-button danger">Cancel shutdown</button></div>
+        </div>
+        <form id="timer-form">
+          <div class="timer-modes" role="group" aria-label="Shutdown timing"><button id="duration-mode" type="button" class="secondary" aria-pressed="true">After a duration</button><button id="clock-mode" type="button" class="secondary" aria-pressed="false">At a time</button></div>
+          <div id="duration-fields"><div class="presets" aria-label="Timer duration"><button type="button" data-minutes="60">1 hour</button><button type="button" data-minutes="120" class="selected">2 hours</button><button type="button" data-minutes="180">3 hours</button></div>
+          <label for="minutes">Or choose minutes</label><div class="timer-input"><input id="minutes" type="number" min="1" max="1440" value="120" aria-describedby="timer-help" required><span>minutes</span></div>
+          </div>
+          <div id="clock-fields" hidden><label for="shutdown-time">Turn off at · Singapore time</label><input id="shutdown-time" type="time" value="07:00" step="60" disabled required>
+          <label for="shutdown-date">Date</label><input id="shutdown-date" type="date" disabled required></div>
+          <p id="timer-preview" class="fine" role="status"></p>
+          <button id="save-timer" class="primary" type="submit">Set shutdown</button>
         </form>
-        <div id="timer-result" role="status" aria-live="polite" hidden><p id="timer-state" class="timer-state"></p><p id="timer-time" class="timer-time"></p><p id="countdown" aria-live="off"></p><button id="cancel" class="text-button">Cancel timer</button></div>
         <p id="timer-help" class="fine">Setting a timer does not turn the aircon on. Keep this computer awake and the local server running. Closing this tab is fine.</p>
+      </div>
+      <div id="usage" class="card usage-card" hidden>
+        <div class="card-heading"><h2>Usage</h2><span id="usage-rate" class="small-label"></span></div>
+        <dl class="tiles">
+          <div><dt>Balance</dt><dd id="usage-balance">--</dd><dd id="usage-left" class="fine"></dd></div>
+          <div><dt>Today</dt><dd id="usage-today">--</dd><dd id="usage-today-note" class="fine"></dd></div>
+          <div><dt>Last 7 days</dt><dd id="usage-week">--</dd><dd id="usage-week-note" class="fine"></dd></div>
+          <div><dt>Last 30 days</dt><dd id="usage-month">--</dd><dd id="usage-month-note" class="fine"></dd></div>
+        </dl>
+        <p id="usage-note" class="fine"></p>
+        <div class="section-heading"><h3>Costs</h3><div class="range" role="group" aria-label="Cost period"><button type="button" data-period="7" aria-pressed="false">7 days</button><button type="button" data-period="30" aria-pressed="true">30 days</button><button type="button" data-period="month" aria-pressed="false">This month</button><button type="button" data-period="all" aria-pressed="false">All time</button><button type="button" data-period="custom" aria-pressed="false">Custom</button></div></div>
+        <div id="period-custom" class="period-custom" hidden><div><label for="period-from">From</label><input id="period-from" type="date"></div><div><label for="period-to">To</label><input id="period-to" type="date"></div></div>
+        <p id="period-title" class="period-title"></p>
+        <dl class="stats">
+          <div><dt>Spent</dt><dd id="period-spent">--</dd></div>
+          <div><dt>Saved by Saver</dt><dd id="period-saved">--</dd></div>
+          <div><dt>Switched on</dt><dd id="period-on">--</dd></div>
+          <div><dt>Per day</dt><dd id="period-average">--</dd></div>
+          <div><dt>Charged by Daikin</dt><dd id="period-charged">--</dd></div>
+        </dl>
+        <div class="chart-legend" aria-hidden="true"><span><i class="key-spent"></i>Spent</span><span><i class="key-saved"></i>Saved by Saver</span></div>
+        <div class="chart-wrap"><svg id="cost-chart" role="img" aria-label="Spent and saved per day. The daily breakdown table below has the same figures."></svg><div id="cost-tip" class="chart-tip" hidden></div></div>
+        <details id="daily-details"><summary>Day-by-day breakdown for this period</summary><div class="table-scroll"><table><thead><tr><th scope="col">Day</th><th scope="col">Switched on</th><th scope="col">Resting</th><th scope="col">Spent</th><th scope="col">Saved</th><th scope="col">Charged by Daikin</th><th scope="col">Switch-ons</th><th scope="col">Avg room</th></tr></thead><tbody id="daily"></tbody><tfoot id="daily-total"></tfoot></table></div><p class="fine">Spent and Saved are time × the hourly rate. Charged by Daikin is what actually left your balance that day; it lands when the aircon switches off, so it can differ from Spent around midnight or while a session is still running.</p></details>
+        <div class="section-heading"><h3>Room temperature</h3><div class="range" role="group" aria-label="Time range"><button type="button" data-hours="6" aria-pressed="false">6 h</button><button type="button" data-hours="24" aria-pressed="true">24 h</button><button type="button" data-hours="168" aria-pressed="false">7 days</button></div></div>
+        <div class="chart-legend" aria-hidden="true"><span><i class="key-room"></i>Room temperature</span><span><i class="key-target"></i>Target</span><span><i class="key-band"></i>Aircon on</span></div>
+        <div class="chart-wrap"><svg id="usage-chart" role="img" aria-label="Room temperature and cooling periods over time. The sessions table below lists the same periods."></svg><div id="chart-tip" class="chart-tip" hidden></div></div>
+        <p id="usage-empty" class="fine" hidden>Readings are logged every minute while the aircon is on and every five minutes while it is off. The charts fill in as they arrive.</p>
+        <details id="sessions-details"><summary>Cooling sessions and what each cost</summary><div class="table-scroll"><table><thead><tr><th scope="col">Started</th><th scope="col">On for</th><th scope="col">Charged</th><th scope="col">Per hour</th><th scope="col">Mode</th></tr></thead><tbody id="sessions"></tbody></table></div><p class="fine">Daikin deducts the charge when the aircon switches off, so each row is one switch-on to switch-off.</p></details>
+        <div class="downloads"><button id="download-daily" type="button" class="text-button">Download this period by day (CSV)</button><button id="download" type="button" class="text-button">Download raw readings, last 31 days (CSV)</button></div>
       </div>
       </div>
       <p id="last-result" role="status" aria-live="polite"></p>
     </section>
-    <footer>Independent NTU student demo · Not affiliated with NTU or Daikin<br>Remembered connections and timers survive server restarts.</footer>
+    <section id="device-controls" hidden><button id="logout" class="text-button">Log out of this device</button><button id="revoke-devices" class="text-button">Log out all devices</button><p class="fine">Logging out keeps your cloud shutdown running.</p></section>
+    <dialog id="saver-dialog"><form id="saver-form" method="dialog">
+      <h2>Saver settings</h2><p>You pay for the time the aircon is switched on. Saver cools the room, rests while it stays cold, then cools again.</p>
+      <div class="timer-modes" role="group" aria-label="How Saver decides"><button id="saver-interval" type="button" class="secondary" aria-pressed="true">Fixed intervals</button><button id="saver-thermostat" type="button" class="secondary" aria-pressed="false">By room temperature</button></div>
+      <div class="saver-fields">
+        <div class="saver-first"><label for="saver-first">Cool down first for (minutes)</label><input id="saver-first" type="number" min="3" max="120" value="10" required></div>
+        <div><label for="saver-on" id="saver-on-label">Then cool for (minutes)</label><input id="saver-on" type="number" min="3" max="120" value="5" required></div>
+        <div><label for="saver-off" id="saver-off-label">Rest for (minutes)</label><input id="saver-off" type="number" min="3" max="120" value="5" required></div>
+        <div class="saver-temperature" hidden><label for="saver-cool">Rest at or below (°C)</label><input id="saver-cool" type="number" min="18" max="31" value="24" required></div>
+        <div class="saver-temperature" hidden><label for="saver-warm">Cool again at or above (°C)</label><input id="saver-warm" type="number" min="19" max="32" value="26" required></div>
+      </div>
+      <p id="saver-preview" class="fine" role="status"></p><p id="saver-error" class="fine" role="alert" hidden></p>
+      <div class="dialog-actions"><button type="button" id="saver-cancel" class="secondary">Cancel</button><button type="submit" class="primary">Save</button></div>
+    </form></dialog>
+    <dialog id="confirm-dialog"><form method="dialog"><h2 id="confirm-title">Confirm</h2><p id="confirm-message"></p><div class="dialog-actions"><button value="cancel" class="secondary">Keep it</button><button value="confirm" class="primary">Confirm</button></div></form></dialog>
+    <footer id="footer-note">Independent NTU student demo · Not affiliated with NTU or Daikin<br>Remembered connections and timers survive server restarts.</footer>
   </main>
 </body></html>

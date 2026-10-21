@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node test/server.test.mjs && node test/cloudflare.test.mjs",
+    "test": "node test/server.test.mjs && node test/cloudflare.test.mjs && node test/schedule.test.mjs",
     "cloud:check": "wrangler deploy --dry-run",
     "cloud:deploy": "wrangler deploy"
   },
