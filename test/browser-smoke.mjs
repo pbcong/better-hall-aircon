@@ -52,7 +52,7 @@ try {
   await evaluate(`document.querySelector('#access-password').value = ${JSON.stringify(password)}; document.querySelector('#access-form').requestSubmit()`);
   await until("!document.querySelector('#connect').hidden && document.querySelector('#access').hidden && !document.querySelector('#practice').disabled");
   await click('#practice'); await until("!document.querySelector('#controls').hidden");
-  await click('#on'); await until("document.querySelector('#power-state').textContent === 'Aircon is on' && !document.querySelector('#on').disabled");
+  await click('#power'); await until("document.querySelector('#power').getAttribute('aria-pressed') === 'true' && document.querySelector('#power-state').textContent === 'Cooling' && !document.querySelector('#power').disabled");
   await click('#clock-mode'); assert.equal(await evaluate("document.querySelector('#minutes').disabled"), true);
   assert.match(await evaluate("document.querySelector('#timer-preview').textContent"), /Singapore time/);
   await click('#duration-mode');
@@ -66,7 +66,7 @@ try {
   await until("document.querySelector('#confirm-dialog').open");
   assert.equal(await evaluate("document.querySelector('#confirm-dialog button[value=confirm]').disabled"), false);
   await click('#confirm-dialog button[value=cancel]'); await until("!document.querySelector('#disconnect').disabled");
-  assert.equal(await evaluate("document.querySelector('#timer-state').textContent"), 'Shutdown scheduled');
+  assert.equal(await evaluate("document.querySelector('#timer-result').dataset.state"), 'scheduled');
   await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true }, sessionId);
   assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true);
   const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true }, sessionId);
@@ -74,7 +74,7 @@ try {
   await click('#logout'); await until("!document.querySelector('#access').hidden");
   await evaluate(`document.querySelector('#access-password').value = ${JSON.stringify(password)}; document.querySelector('#access-form').requestSubmit()`);
   await until("!document.querySelector('#timer-result').hidden");
-  assert.equal(await evaluate("document.querySelector('#timer-state').textContent"), 'Shutdown scheduled');
+  assert.equal(await evaluate("document.querySelector('#timer-result').dataset.state"), 'scheduled');
   // Schedule a short practice alarm, close the page, and read its outcome only after it should have run.
   const job = await evaluate(`(async () => { const state = await (await fetch('/api/session')).json(); const dueAt = Date.now() + 2500; return (await (await fetch('/api/timer', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': state.csrf }, body: JSON.stringify({ dueAt }) })).json()).timer; })()`);
   assert.ok(job?.id); await command('Target.closeTarget', { targetId: target.targetId });
