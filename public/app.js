@@ -2,7 +2,12 @@ import { singaporeDate, nextClockDate, clockTimestamp, describeShutdown, shutdow
 import { summarize, span, total, drawChart, drawCost, toCsv, dailyCsv, dateLabel, money, duration, clockTime, RATE } from './usage.js';
 const $ = id => document.getElementById(id);
 let csrf = '';
+// `server` is the last state the server confirmed. `state` is what the page shows: the server state with any
+// optimistic changes still in flight laid over it, so a background poll can never flicker a tap back.
+let server = null;
 let state = null;
+const overlays = new Set();
+function sync() { state = server && [...overlays].reduce((view, patch) => patch(view), server); render(); }
 let working = false;
 let helperReady = false;
 let temperatureDirty = false;
@@ -11,7 +16,6 @@ let timerDirty = false;
 let timerSeen = null;
 let timerEditing = false;
 let customOpen = false;
-let pendingPower = null;
 let target = null;
 let temperatureSending = false;
 let temperatureTimer = 0;
@@ -20,7 +24,6 @@ let toastSeen = null;
 let toastTimer = 0;
 let dateChosen = false;
 let polling = false;
-let requestVersion = 0;
 let serverOffset = 0;
 let saverKind = 'interval';
 let usageRows = [];
@@ -50,25 +53,56 @@ function toast(result) {
 // Remember which button started an action so it alone can show a spinner.
 document.addEventListener('click', event => { pressed = event.target.closest?.('button') ?? null; }, true);
 document.addEventListener('submit', event => { pressed = event.submitter ?? event.target.querySelector('[type=submit]'); }, true);
-async function api(path, body) {
-  const version = ++requestVersion;
+// Requests run one at a time, in tap order, so quick taps never race each other on the server.
+let queue = Promise.resolve();
+function api(path, body) {
+  const run = queue.then(() => send(path, body));
+  queue = run.catch(() => {});
+  return run;
+}
+async function send(path, body) {
   const response = await fetch(path, { credentials: 'same-origin', cache: 'no-store',
     ...(body !== undefined ? { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify(body) } : {}) });
   let value;
   try { value = await response.json(); } catch { throw new Error(response.status === 401 ? 'Sign-in is required. Reload the page to sign in.' : 'The server returned an unreadable response. Try again.'); }
   if (!response.ok) {
-    if (value.accessExpired) { state = { authenticated: false, hosted: true }; csrf = ''; render(); }
+    if (value.accessExpired) { server = { authenticated: false, hosted: true }; overlays.clear(); csrf = ''; sync(); }
     throw new Error(value.error ?? 'Request failed.');
   }
-  if (version !== requestVersion) return value;
   if (value.serverNow) serverOffset = value.serverNow - Date.now();
   if (value.csrf) csrf = value.csrf;
-  if (path === '/api/timer') { timerDirty = false; timerEditing = false; }
   const { loginTicket, history, usage, ...safeState } = value;
-  state = safeState; render(); return value;
+  server = safeState; sync(); return value;
+}
+// Optimistic: show the result of a tap at once and confirm in the background. On failure the overlay is
+// dropped, so the control springs back to the real state, and the reason is shown.
+async function optimistic(patch, request) {
+  notice(); overlays.add(patch); sync();
+  try { await request(); } catch (error) {
+    if (state?.authenticated !== false) { try { await api('/api/session'); } catch { /* Keep the original error visible. */ } }
+    notice(error.message);
+  } finally { overlays.delete(patch); sync(); }
 }
 const time = stamp => new Date(stamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+// Cards ease to their new height instead of jumping when content appears or disappears.
+const calm = matchMedia('(prefers-reduced-motion: reduce)');
+let rendered = false;
 function render() {
+  const cards = rendered && !calm.matches ? [...document.querySelectorAll('.card')].filter(card => card.offsetParent) : [];
+  const before = cards.map(card => card.getBoundingClientRect().height);
+  paint();
+  cards.forEach((card, i) => {
+    const after = card.getBoundingClientRect().height;
+    if (Math.abs(after - before[i]) < 1) return;
+    card.getAnimations().filter(a => a.id === 'morph').forEach(a => a.cancel());
+    card.style.overflow = 'clip';
+    const motion = card.animate([{ height: `${before[i]}px` }, { height: `${after}px` }], { id: 'morph', duration: 560, easing: getComputedStyle(document.documentElement).getPropertyValue('--spring-soft').trim() || 'ease-out' });
+    motion.onfinish = motion.oncancel = () => { if (!card.getAnimations().some(a => a.id === 'morph' && a !== motion)) card.style.overflow = ''; };
+  });
+  if (state) rendered = true;
+  placeThumbs();
+}
+function paint() {
   document.querySelector('main').setAttribute('aria-busy', String(working || Boolean(state?.busy)));
   $('loading').hidden = Boolean(state) || !working;
   if (!state) return;
@@ -114,9 +148,12 @@ function render() {
   const power = !state.status ? 'unknown' : resting ? 'rest' : state.status.power ? 'on' : 'off';
   $('climate').dataset.power = power;
   document.body.dataset.power = state.connected ? power : '';
-  $('power').setAttribute('aria-pressed', String(pendingPower ?? on));
+  // The orb answers the tap at once; the label stays honest until Daikin confirms the unit changed.
+  const switching = state.powerPending != null;
+  $('power').setAttribute('aria-pressed', String(on));
+  $('power').classList.toggle('is-pending', switching);
   $('power').setAttribute('aria-label', on ? 'Turn aircon off' : 'Turn aircon on');
-  show('power-state', pendingPower != null ? (pendingPower ? 'Turning on…' : 'Turning off…')
+  show('power-state', switching ? (state.powerPending ? 'Turning on…' : 'Turning off…')
     : !state.status ? 'Status unavailable' : resting ? 'Resting · Saver' : state.status.power ? 'Cooling' : 'Off');
   show('temperature', state.status?.temperature ?? '--');
   const stale = state.status && clockNow() - state.status.checkedAt > 120000;
@@ -148,7 +185,7 @@ function render() {
   $('change-timer').hidden = !scheduled || !state.connected;
   $('change-timer').textContent = timerEditing ? 'Keep' : 'Change';
   $('change-timer').setAttribute('aria-expanded', String(timerEditing));
-  $('timer-saved').textContent = timer?.state === 'scheduled' ? (state.mode === 'practice' ? 'Practice — no equipment will be controlled.' : state.hosted ? 'Saved in the cloud. You can close this page.' : state.remembered ? 'Saved on this computer. Keep the server running.' : 'Temporary. Keep the server running.') : '';
+  show('timer-saved', timer?.state !== 'scheduled' ? '' : timer.pending ? 'Saving…' : (state.mode === 'practice' ? 'Practice — no equipment will be controlled.' : state.hosted ? 'Saved in the cloud. You can close this page.' : state.remembered ? 'Saved on this computer. Keep the server running.' : 'Temporary. Keep the server running.'));
   $('timer-failure').hidden = timer?.state !== 'failed';
   $('timer-failure').textContent = timer?.error ?? state.lastResult?.message ?? 'Shutdown could not be confirmed. Check your aircon manually.';
   $('timer-form').hidden = !state.connected || (scheduled && !timerEditing);
@@ -159,7 +196,7 @@ function render() {
   countdown(); preview();
   document.querySelectorAll('button').forEach(button => { if (button.closest('dialog')) return; button.disabled = working || state.busy; });
   $('open-settings').disabled = false;
-  $('power').disabled = working || state.busy || temperatureSending;
+  $('power').disabled = working || state.busy;
   $('automatic-login').disabled = working || state.busy || !helperReady || state.loginWaiting;
   $('automatic-login').toggleAttribute('data-unavailable', !helperReady || Boolean(state.loginWaiting));
   // The stepper stays live while its own change is being sent, so taps can keep adjusting.
@@ -215,15 +252,16 @@ $('disconnect').addEventListener('click', () => {
   });
 });
 $('refresh').addEventListener('click', () => action(async () => { await api('/api/status', {}); await loadUsage(); }));
-// Power flips optimistically so the room lights up at once; a failure renders the real state again.
+const startSaver = (config, at) => ({ ...config, state: 'running', phase: 'on', phaseStart: at, startedAt: at, switches: 0, failures: 0 });
+const endSaver = saver => saver?.state === 'running' ? { ...saver, state: 'stopped', reason: null, blocked: false } : saver;
+// Power mirrors what the server does: off ends Saver and completes a pending shutdown, on starts Saver if enabled.
 $('power').addEventListener('click', () => {
-  const next = $('power').getAttribute('aria-pressed') !== 'true';
+  const next = $('power').getAttribute('aria-pressed') !== 'true', at = clockNow();
   if (!next) { clearTimeout(temperatureTimer); temperatureDirty = false; }
-  void action(async () => {
-    pendingPower = next; render();
-    try { await api('/api/power', { power: next }); } finally { pendingPower = null; }
-    await loadUsage();
-  });
+  void optimistic(view => ({ ...view, powerPending: next, status: { ...view.status, power: next },
+    saver: !next ? endSaver(view.saver) : view.saverConfig?.enabled ? startSaver(view.saverConfig, at) : endSaver(view.saver),
+    timer: !next && view.timer?.state === 'scheduled' ? { ...view.timer, state: 'completed', completedBy: 'manual' } : view.timer,
+  }), async () => { await api('/api/power', { power: next }); void loadUsage(); });
 });
 // Each tap moves the target at once; the command goes out after a short pause so repeated taps send one change.
 function nudge(step) {
@@ -279,15 +317,23 @@ function renderChips() {
   $('quick-timers').replaceChildren(...chips, custom);
 }
 renderChips();
+// A timer appears at once but reads "Saving…" until the cloud has it, since it promises the page can close.
 $('timer-form').addEventListener('submit', event => {
   event.preventDefault();
   const quick = event.submitter?.dataset.minutes;
-  void action(async () => {
-    const payload = quick ? { minutes: Number(quick) } : timerMode === 'duration' ? { minutes: Number($('minutes').value) } : { dueAt: clockTimestamp($('shutdown-date').value, $('shutdown-time').value) };
-    await api('/api/timer', payload);
-  });
+  const payload = quick ? { minutes: Number(quick) } : timerMode === 'duration' ? { minutes: Number($('minutes').value) } : { dueAt: clockTimestamp($('shutdown-date').value, $('shutdown-time').value) };
+  const dueAt = payload.dueAt ?? clockNow() + payload.minutes * 60000;
+  const left = (dueAt - clockNow()) / 60000;
+  // An invalid custom time waits for the server's explanation rather than flashing a timer that reverts.
+  if (!Number.isFinite(dueAt) || left <= 0 || left > 1440) { void action(() => api('/api/timer', payload)); return; }
+  timerDirty = false; timerEditing = false; customOpen = false;
+  void optimistic(view => ({ ...view, timer: { id: `pending-${dueAt}`, dueAt, timezone: 'Asia/Singapore', attempts: 0, state: 'scheduled', pending: true } }),
+    () => api('/api/timer', payload));
 });
-$('cancel').addEventListener('click', () => action(() => api('/api/timer', { cancel: true })));
+$('cancel').addEventListener('click', () => {
+  timerEditing = false; customOpen = false;
+  void optimistic(view => view.timer?.state === 'scheduled' ? { ...view, timer: { ...view.timer, state: 'cancelled' } } : view, () => api('/api/timer', { cancel: true }));
+});
 $('minutes').addEventListener('input', () => { timerDirty = true; preview(); });
 
 // Settings sheet.
@@ -415,9 +461,17 @@ function saverCountdown() {
     : v.kind === 'thermostat' ? (cooling ? `Cooling until the room reads ${v.coolTo}°C` : `Resting until the room reads ${v.warmTo}°C`) + (left ? ` · at least ${stamp}` : '')
     : left ? `${cooling ? 'Cooling · rests' : 'Resting · cools again'} in ${stamp}` : 'Switching…';
 }
-$('saver-switch').addEventListener('click', () => action(async () => {
-  await api('/api/saver', { enabled: !state.saverConfig?.enabled }); await loadUsage();
-}));
+// Switching Saver off mid-rest turns the aircon back on (it means "keep cooling"), as the server does.
+$('saver-switch').addEventListener('click', () => {
+  const enabled = !state.saverConfig?.enabled, at = clockNow();
+  void optimistic(view => {
+    const saverConfig = { ...view.saverConfig, enabled };
+    let { saver, status } = view;
+    if (!enabled && saver?.state === 'running') { if (saver.phase === 'off') status = { ...status, power: true }; saver = endSaver(saver); }
+    if (enabled && status?.power && saver?.state !== 'running') saver = startSaver(saverConfig, at);
+    return { ...view, saverConfig, saver, status };
+  }, async () => { await api('/api/saver', { enabled }); void loadUsage(); });
+});
 function chooseSaver(kind) {
   saverKind = kind;
   const thermostat = kind === 'thermostat';
@@ -559,4 +613,32 @@ document.querySelectorAll('[data-period]').forEach(button => button.addEventList
 }));
 for (const id of ['period-from', 'period-to']) $(id).addEventListener('change', renderUsage);
 window.addEventListener('resize', () => { if (state?.mode === 'live') renderUsage(); });
-$('usage-more').addEventListener('toggle', () => { if (state?.mode === 'live') renderUsage(); });
+$('usage-more').addEventListener('toggle', () => { if (state?.mode === 'live') renderUsage(); placeThumbs(); });
+
+// Touch feel. iOS Safari only applies :active styles once the page listens for touches.
+document.addEventListener('touchstart', () => {}, { passive: true });
+// The glass highlight follows the finger or pointer across the control being pressed.
+document.addEventListener('pointerdown', glow, { passive: true });
+document.addEventListener('pointermove', glow, { passive: true });
+function glow(event) {
+  const button = event.target.closest?.('button');
+  if (!button) return;
+  const box = button.getBoundingClientRect();
+  button.style.setProperty('--mx', `${event.clientX - box.left}px`);
+  button.style.setProperty('--my', `${event.clientY - box.top}px`);
+}
+// Range tabs get one glass thumb that slides to the chosen option, like an iOS segmented control.
+document.querySelectorAll('.range').forEach(group => { const thumb = document.createElement('i'); thumb.className = 'range-thumb'; thumb.setAttribute('aria-hidden', 'true'); group.prepend(thumb); });
+function placeThumbs() {
+  document.querySelectorAll('.range').forEach(group => {
+    const chosen = group.querySelector('[aria-pressed="true"]'), thumb = group.querySelector('.range-thumb');
+    if (!thumb || !chosen?.offsetWidth) return;
+    // The first placement lands without sliding in from the corner.
+    if (!thumb.style.width) thumb.style.transition = 'none';
+    thumb.style.width = `${chosen.offsetWidth}px`; thumb.style.height = `${chosen.offsetHeight}px`;
+    thumb.style.translate = `${chosen.offsetLeft}px ${chosen.offsetTop}px`;
+    if (thumb.style.transition) { void thumb.offsetWidth; thumb.style.transition = ''; }
+  });
+}
+document.querySelectorAll('.range button').forEach(button => button.addEventListener('click', placeThumbs));
+window.addEventListener('resize', placeThumbs);

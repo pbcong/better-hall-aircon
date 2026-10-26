@@ -52,7 +52,23 @@ try {
   await evaluate(`document.querySelector('#access-password').value = ${JSON.stringify(password)}; document.querySelector('#access-form').requestSubmit()`);
   await until("!document.querySelector('#connect').hidden && document.querySelector('#access').hidden && !document.querySelector('#practice').disabled");
   await click('#practice'); await until("!document.querySelector('#controls').hidden");
-  await click('#power'); await until("document.querySelector('#power').getAttribute('aria-pressed') === 'true' && document.querySelector('#power-state').textContent === 'Cooling' && !document.querySelector('#power').disabled");
+  // Optimistic controls answer in the same frame as the tap, before any server reply.
+  assert.deepEqual(await evaluate("document.querySelector('#power').click(), [document.querySelector('#power').getAttribute('aria-pressed'), document.querySelector('#power-state').textContent, document.querySelector('#climate').dataset.power, document.querySelector('#power').disabled]"), ['true', 'Turning on…', 'on', false]);
+  await until("document.querySelector('#power').getAttribute('aria-pressed') === 'true' && document.querySelector('#power-state').textContent === 'Cooling' && !document.querySelector('#power').classList.contains('is-pending')");
+  assert.equal(await evaluate("document.querySelector('#saver-switch').click(), document.querySelector('#saver-switch').getAttribute('aria-checked')"), 'false');
+  await until("document.querySelector('#saver-switch').getAttribute('aria-checked') === 'false' && document.querySelector('#saver-summary').textContent.startsWith('Off')");
+  assert.equal(await evaluate("document.querySelector('#saver-switch').click(), document.querySelector('#saver-switch').getAttribute('aria-checked')"), 'true');
+  await until("!document.querySelector('#saver-summary').textContent.startsWith('Off')");
+  await evaluate("fetch('/api/session').then(() => new Promise(resolve => setTimeout(resolve, 300)))");
+  // A refused tap springs back to the confirmed state and says why.
+  await evaluate("window.realFetch = fetch; window.fetch = (path, init) => path === '/api/saver' ? Promise.resolve(new Response(JSON.stringify({ error: 'Test refusal.' }), { status: 409, headers: { 'Content-Type': 'application/json' } })) : realFetch(path, init)");
+  assert.equal(await evaluate("document.querySelector('#saver-switch').click(), document.querySelector('#saver-switch').getAttribute('aria-checked')"), 'false');
+  await until("document.querySelector('#saver-switch').getAttribute('aria-checked') === 'true' && document.querySelector('#notice').textContent === 'Test refusal.'");
+  await evaluate("window.fetch = realFetch");
+  assert.deepEqual(await evaluate("document.querySelector('#quick-timers button').click(), [document.querySelector('#timer-result').hidden, document.querySelector('#timer-saved').textContent]"), [false, 'Saving…']);
+  await until("document.querySelector('#timer-saved').textContent.startsWith('Practice')");
+  assert.equal(await evaluate("document.querySelector('#cancel').click(), document.querySelector('#timer-result').dataset.state"), 'cancelled');
+  await until("document.querySelector('#timer-result').dataset.state === 'cancelled' && !document.querySelector('#timer-form').hidden");
   await click('#clock-mode'); assert.equal(await evaluate("document.querySelector('#minutes').disabled"), true);
   assert.match(await evaluate("document.querySelector('#timer-preview').textContent"), /Singapore time/);
   await click('#duration-mode');
@@ -69,6 +85,7 @@ try {
   assert.equal(await evaluate("document.querySelector('#timer-result').dataset.state"), 'scheduled');
   await command('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true }, sessionId);
   assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true);
+  await new Promise(resolve => setTimeout(resolve, 1500)); // Let entrance animations settle.
   const screenshot = await command('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true }, sessionId);
   await writeFile('/tmp/aircon-mobile.png', Buffer.from(screenshot.data, 'base64'));
   await click('#logout'); await until("!document.querySelector('#access').hidden");

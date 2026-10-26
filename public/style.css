@@ -35,6 +35,7 @@
   --spring: var(--ease-out);
   --spring-soft: var(--ease-out);
   --blur: blur(28px) saturate(180%);
+  --press-light: rgb(255 255 255 / .5);
   font: 16px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
   color: var(--text);
   background: var(--bg);
@@ -76,6 +77,7 @@
     --band: rgb(100 210 255 / .14);
     --spent: #0a84ff;
     --saved: #30d158;
+    --press-light: rgb(255 255 255 / .16);
   }
 }
 
@@ -120,7 +122,6 @@ body[data-power="rest"] .blob { opacity: .62; filter: saturate(.8); }
 .topbar { display: flex; align-items: center; justify-content: space-between; height: 52px; margin-bottom: 40px; }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-size: 19px; font-weight: 700; letter-spacing: -.025em; }
 .brand img { border-radius: 9px; box-shadow: 0 4px 12px rgb(0 70 200 / .25); transition: transform .6s var(--spring); }
-.brand:hover img { transform: rotate(-10deg) scale(1.06); }
 .topbar-end { display: flex; align-items: center; gap: 10px; }
 .status-pill { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px 0 10px; border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--muted); background: var(--fill); }
 .status-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
@@ -128,9 +129,7 @@ body[data-power="rest"] .blob { opacity: .62; filter: saturate(.8); }
 .status-pill[data-mode="practice"]::before { background: var(--orange); }
 .icon-button { display: grid; place-items: center; width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 50%; color: var(--text); }
 .icon-button:not(.glass) { background: var(--fill); }
-.icon-button:hover:not(:disabled) { background: var(--glass-strong); }
 #open-settings svg { transition: rotate .8s var(--spring-soft); }
-#open-settings:hover svg { rotate: 60deg; }
 
 /* Intro */
 .intro { margin: 0 0 32px; max-width: 560px; }
@@ -147,7 +146,6 @@ main:not(.is-connected) > :is(#notice, #connect, #loading, #access, #migration) 
 label { display: block; font-size: 13px; font-weight: 600; margin: 18px 0 8px; color: var(--text); }
 input { width: 100%; min-width: 0; font: inherit; color: var(--text); background: var(--fill); border: 1px solid transparent; border-radius: 14px; padding: 12px 14px; min-height: 48px;
   transition: background-color .25s var(--ease), border-color .25s var(--ease), box-shadow .25s var(--ease); }
-input:hover:not(:disabled) { background: var(--fill-hover); }
 input:focus { outline: none; background: var(--glass-strong); border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent); }
 input:disabled { color: var(--muted); }
 input::placeholder { color: var(--faint); opacity: 1; }
@@ -161,17 +159,21 @@ button { position: relative; font: inherit; font-size: 15px; font-weight: 600; c
   transition: background-color .25s var(--ease), color .25s var(--ease), box-shadow .3s var(--ease), opacity .3s var(--ease) .1s, transform .5s var(--spring); }
 button:active:not(:disabled) { transform: scale(.96); transition-duration: .25s, .25s, .3s, .3s, .12s; }
 button:disabled { opacity: .4; cursor: not-allowed; }
+/* Liquid glass press: a soft light pools under the finger and fades as it lifts. */
+:is(.chips, .stepper, .range, .timer-actions, .dialog-actions, .segmented) button, .primary, .secondary, .icon-button, .list-row, .text-button { isolation: isolate; }
+:is(.chips, .stepper, .range, .timer-actions, .dialog-actions, .segmented) button::before, .primary::before, .secondary::before, .icon-button::before, .list-row::before, .text-button::before {
+  content: ""; position: absolute; z-index: -1; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
+  background: radial-gradient(140px circle at var(--mx, 50%) var(--my, 50%), var(--press-light), transparent 70%); transition: opacity .6s var(--ease); }
+:is(.chips, .stepper, .range, .timer-actions, .dialog-actions, .segmented) button:active:not(:disabled)::before, .primary:active:not(:disabled)::before, .secondary:active:not(:disabled)::before,
+.icon-button:active:not(:disabled)::before, .list-row:active:not(:disabled)::before, .text-button:active:not(:disabled)::before { opacity: 1; transition-duration: .08s; }
 main[aria-busy="true"] button:disabled:not([data-unavailable]) { opacity: 1; cursor: progress; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 input:focus-visible { outline: none; }
 .primary { width: 100%; margin-top: 16px; background: var(--accent); color: #fff; box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--accent) 70%, transparent), inset 0 1px 0 rgb(255 255 255 / .25); }
-.primary:hover:not(:disabled) { background: var(--accent-hover); }
 .secondary { width: 100%; background: var(--fill); }
-.secondary:hover:not(:disabled) { background: var(--fill-hover); }
 .secondary.small { width: auto; min-height: 36px; padding: 7px 16px; font-size: 14px; border-radius: 999px; }
 .danger { color: var(--red); }
 .text-button { padding: 6px 10px; min-height: 40px; color: var(--accent); }
-.text-button:hover:not(:disabled) { background: var(--fill); }
 .link { min-height: 0; padding: 0; font-size: inherit; font-weight: 600; color: var(--accent); border-radius: 4px; }
 
 /* The pressed button shows a spinner once a request is slow enough to notice. */
@@ -198,7 +200,6 @@ details { border-top: 1px solid var(--hairline); }
 summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; list-style: none; font-size: 14px; font-weight: 500; color: var(--text); cursor: pointer; padding: 13px 0; min-height: 48px; transition: color .25s var(--ease); }
 summary::-webkit-details-marker { display: none; }
 summary::after { content: ""; flex: none; width: 7px; height: 7px; margin-right: 6px; border: solid var(--faint); border-width: 0 1.75px 1.75px 0; rotate: 45deg; translate: 0 -2px; transition: rotate .5s var(--spring), translate .5s var(--spring); }
-summary:hover { color: var(--accent); }
 details[open] > summary::after { rotate: 225deg; translate: 0 2px; }
 details::details-content { block-size: 0; overflow: clip; opacity: 0; transition: block-size .5s var(--ease), opacity .4s var(--ease), content-visibility .5s allow-discrete; }
 details[open]::details-content { block-size: auto; opacity: 1; }
@@ -258,15 +259,15 @@ details p { font-size: 13px; line-height: 1.6; }
 .power-halo { position: absolute; inset: -8px; border-radius: 50%; opacity: 0; transition: opacity .8s var(--ease);
   background: conic-gradient(from 0deg, transparent, color-mix(in srgb, var(--cool) 60%, transparent), transparent 40%, color-mix(in srgb, var(--cool-2) 50%, transparent), transparent 80%);
   -webkit-mask: radial-gradient(closest-side, transparent 86%, #000 88%); mask: radial-gradient(closest-side, transparent 86%, #000 88%); }
-.power-button:hover:not(:disabled) { transform: scale(1.04); }
 .power-button:active:not(:disabled) { transform: scale(.92); transition-duration: .6s, .6s, .6s, .15s; }
 .power-button[aria-pressed="true"] { color: #fff; box-shadow: 0 12px 30px -8px color-mix(in srgb, var(--cool) 80%, transparent), inset 0 1px 0 rgb(255 255 255 / .4); }
 .power-button[aria-pressed="true"]::before { opacity: 1; }
 .power-button[aria-pressed="true"] .power-halo { opacity: 1; animation: spin 6s linear infinite; }
 .power-button[aria-pressed="true"] svg { transform: scale(1.06); }
-/* While a command is in flight the halo becomes a tight spinner. */
-.power-button.is-loading .power-halo { opacity: 1; animation: spin 1s linear infinite;
-  background: conic-gradient(from 0deg, transparent 60%, var(--accent)); }
+/* Until Daikin confirms, the halo breathes faster: the tap is answered, the unit is still catching up. */
+.power-button.is-pending .power-halo { opacity: 1; animation: spin 1.4s linear infinite, breathe 1.4s var(--ease) infinite alternate; }
+.power-button.is-pending:not([aria-pressed="true"]) .power-halo { background: conic-gradient(from 0deg, transparent 55%, color-mix(in srgb, var(--muted) 70%, transparent)); }
+@keyframes breathe { from { scale: .97; } to { scale: 1.03; } }
 .power-button:disabled { opacity: 1; }
 
 /* Rows */
@@ -276,7 +277,6 @@ details p { font-size: 13px; line-height: 1.6; }
 .row-hint:empty { display: none; }
 .stepper { display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 999px; background: var(--fill); }
 .stepper button { width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 50%; font-size: 22px; font-weight: 400; line-height: 1; }
-.stepper button:hover:not(:disabled) { background: var(--glass-strong); }
 #setpoint { display: inline-block; min-width: 56px; text-align: center; font-size: 19px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.02em; overflow: hidden; }
 #setpoint[data-pending] { color: var(--accent); }
 .stepper:has(button:disabled[data-unavailable]) #setpoint { color: var(--muted); }
@@ -297,9 +297,7 @@ details p { font-size: 13px; line-height: 1.6; }
 .form-label { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--muted); }
 .chips { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
 .chips button { min-height: 52px; padding: 8px 2px; border-radius: 16px; background: var(--fill); font-size: 14.5px; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
-.chips button:hover:not(:disabled) { background: var(--fill-hover); }
 .chips [aria-expanded="true"] { background: var(--text); color: var(--bg); }
-.chips [aria-expanded="true"]:hover:not(:disabled) { background: var(--text); }
 #custom-fields { margin-top: 14px; padding: 14px; border-radius: 20px; background: var(--fill); }
 #custom-fields .segmented { background: var(--fill); }
 .field { position: relative; margin-top: 12px; }
@@ -371,7 +369,6 @@ dialog[open]::backdrop { background: rgb(0 0 0 / .28); }
 .list { border-radius: 16px; background: var(--fill); overflow: hidden; }
 .list-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 50px; padding: 12px 16px; border-radius: 0; font-size: 15px; font-weight: 500; text-align: left; white-space: normal; }
 .list-row + .list-row { box-shadow: inset 0 1px 0 var(--hairline); }
-button.list-row:hover:not(:disabled) { background: var(--fill); }
 button.list-row:active:not(:disabled) { transform: none; background: var(--fill-hover); }
 .row-value { color: var(--muted); font-size: 14px; font-weight: 400; text-align: right; }
 button.list-row:not(.danger)::after { content: ""; flex: none; width: 7px; height: 7px; border: solid var(--faint); border-width: 1.75px 1.75px 0 0; rotate: 45deg; margin-left: -4px; }
@@ -399,8 +396,11 @@ button.list-row:not(.danger)::after { content: ""; flex: none; width: 7px; heigh
 .section-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 24px; }
 .range { margin-left: auto; display: flex; flex-wrap: wrap; gap: 2px; padding: 3px; border-radius: 999px; background: var(--fill); }
 .range button { min-height: 30px; padding: 4px 12px; font-size: 13px; color: var(--muted); border-radius: 999px; }
-.range button:active:not(:disabled) { transform: none; }
-.range [aria-pressed="true"] { color: var(--text); background: var(--glass-strong); box-shadow: 0 2px 6px rgb(0 0 0 / .1); }
+.range { position: relative; isolation: isolate; }
+.range-thumb { position: absolute; z-index: -1; left: 0; top: 0; border-radius: 999px; background: var(--glass-strong); box-shadow: 0 2px 6px rgb(0 0 0 / .1), 0 0 0 .5px rgb(0 0 0 / .04);
+  transition: translate .55s var(--spring), width .55s var(--spring), height .55s var(--spring); pointer-events: none; }
+.range button:active:not(:disabled) { transform: scale(.94); }
+.range [aria-pressed="true"] { color: var(--text); }
 .period-custom { display: grid; grid-template-columns: repeat(2, minmax(0, 220px)); gap: 0 12px; }
 .period-custom label { margin-top: 12px; }
 .period-title { color: var(--text); font-size: 13px; font-weight: 600; margin: 14px 0 8px; }
@@ -430,7 +430,7 @@ button.list-row:not(.danger)::after { content: ""; flex: none; width: 7px; heigh
 .bar-spent { fill: var(--spent); }
 .bar-saved { fill: var(--saved); }
 .bar-hit { fill: transparent; outline: none; }
-.bar-hit:hover, .bar-hit:focus-visible { fill: var(--text); fill-opacity: .06; }
+.bar-hit:focus-visible { fill: var(--text); fill-opacity: .06; }
 .chart-tip { position: absolute; top: 8px; pointer-events: none; background: var(--glass-strong); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border: 1px solid var(--glass-edge); border-radius: 14px; padding: 8px 12px; font-size: 12px; min-width: 150px; box-shadow: var(--shadow-lift); }
 .chart-tip div { display: flex; justify-content: space-between; gap: 16px; color: var(--muted); }
 .chart-tip div:first-child span { color: var(--text); font-weight: 600; }
@@ -458,6 +458,26 @@ tfoot th { color: var(--text); border-bottom: 0; }
 @keyframes tick { from { opacity: 0; filter: blur(4px); translate: 0 8px; } }
 @keyframes tick-up { from { opacity: 0; filter: blur(3px); translate: 0 60%; } }
 @keyframes tick-down { from { opacity: 0; filter: blur(3px); translate: 0 -60%; } }
+
+/* Hover only where there is a real pointer; on touch screens it would stick after a tap. */
+@media (hover: hover) and (pointer: fine) {
+  .brand:hover img { transform: rotate(-10deg) scale(1.06); }
+  .icon-button:hover:not(:disabled) { background: var(--glass-strong); }
+  #open-settings:hover svg { rotate: 60deg; }
+  input:hover:not(:disabled) { background: var(--fill-hover); }
+  .primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .secondary:hover:not(:disabled) { background: var(--fill-hover); }
+  .text-button:hover:not(:disabled) { background: var(--fill); }
+  summary:hover { color: var(--accent); }
+  .power-button:hover:not(:disabled) { transform: scale(1.04); }
+  .power-button:active:not(:disabled) { transform: scale(.92); }
+  .stepper button:hover:not(:disabled) { background: var(--glass-strong); }
+  .chips button:hover:not(:disabled) { background: var(--fill-hover); }
+  .chips [aria-expanded="true"]:hover:not(:disabled) { background: var(--text); }
+  button.list-row:hover:not(:disabled) { background: var(--fill); }
+  .bar-hit:hover { fill: var(--text); fill-opacity: .06; }
+  :is(.chips, .stepper, .range, .timer-actions, .dialog-actions, .segmented) button:hover:not(:disabled)::before, .secondary:hover:not(:disabled)::before, .icon-button:hover:not(:disabled)::before { opacity: .45; }
+}
 
 /* Phone */
 @media (max-width: 767px) {
