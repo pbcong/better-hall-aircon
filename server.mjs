@@ -126,8 +126,11 @@ export function normalizeStatus(body) {
   if (![0, 1, '0', '1', true, false].includes(ac.power)) {
     throw new AppError(502, 'Daikin did not return a usable power status.');
   }
+  // While on, 'aircon.wallet' names the student being charged ('aircon.account' is only the room's default
+  // holder). Only the comparison with this account leaves this function, never either ID.
+  const mine = data.residence_id, payer = ac.wallet?.residence_id;
   // Deliberately omit name, matric number, room address and all credentials.
-  return { power: Number(ac.power) === 1, temperature: numberOrNull(ac.current_temperature),
+  return { power: Number(ac.power) === 1, payer: typeof mine === 'string' && mine && typeof payer === 'string' && payer ? (payer === mine ? 'you' : 'other') : null, temperature: numberOrNull(ac.current_temperature),
     setpoint: numberOrNull(ac.setpoint), balance: numberOrNull(data.balance), fan: labelOrNull(ac.fanstep), checkedAt: Date.now() };
 }
 export function createDaikinClient(fetchImpl = fetch, { cloud = false } = {}) {
@@ -206,7 +209,7 @@ export function createApp({ client = createDaikinClient(), now = Date.now, sessi
   function publicState(s) {
     return { connected: Boolean(s.mode), mode: s.mode, status: s.status, timer: s.timer, saver: s.saver ?? null, saverConfig: { ...SAVER_DEFAULTS, ...s.saverConfig }, saverLimits: SAVER_LIMITS,
       lastResult: s.lastResult, busy: s.busy, turningOff: Boolean(s.mode && s.offWanted && !s.offWanted.gaveUp),
-      session: s.session ? { mine: s.session.mine, start: s.session.start } : null,
+      session: s.session ? { mine: s.session.mine, known: s.session.known, start: s.session.start } : null,
       lastSession: s.ended ? { result: s.ended.result, charged: s.ended.charged ?? null, start: s.ended.start, end: s.ended.end } : null, expiresAt: sharedRoom ? null : s.expiresAt, hosted: Boolean(hostedOrigin), authenticated: true, serverNow: now(), timezone: 'Asia/Singapore', remembered: Boolean(s.remember && vault), temperatureLimits: TEMPERATURE_LIMITS,
       loginWaiting: Boolean(s.loginTicket && loginTickets.has(s.loginTicket)), loginExpiresAt: loginTickets.get(s.loginTicket)?.expiresAt ?? null };
   }
@@ -252,14 +255,18 @@ export function createApp({ client = createDaikinClient(), now = Date.now, sessi
     for (const [id, value] of months) await history.putMonth(id, value);
     s.ledger = true;
   }
-  // Daikin does not say whose wallet a session uses, so the app tracks who switched it on, then checks your
-  // balance, which drops the moment a session you pay for switches off. No drop means it was not yours.
+  // Whose wallet a session uses: Daikin's wallet field when present, otherwise whether this app switched it on.
+  // After switch-off your balance confirms it, since a session you pay for is charged the moment it ends.
   function observe(s) {
     const st = s.status;
     if (!st) return;
     // An on this app sent can take a while to show, so it still counts as ours a few minutes later.
     const ours = s.onSentAt != null && now() - s.onSentAt < 180000;
-    if (st.power) { s.session ??= { start: now(), mine: ours, balance: st.balance ?? null }; return; }
+    if (st.power) {
+      s.session ??= { start: now(), mine: ours, known: false, balance: st.balance ?? null };
+      if (st.payer) Object.assign(s.session, { mine: st.payer === 'you', known: true });
+      return;
+    }
     if (s.session) { s.ended = { ...s.session, end: now(), result: null }; delete s.session; }
     const e = s.ended;
     if (!e || e.result) return;
@@ -300,10 +307,14 @@ export function createApp({ client = createDaikinClient(), now = Date.now, sessi
   async function steer(s) {
     const v = s.saver;
     const on = s.status.power;
+    if (on && s.session?.known && !s.session.mine) { stopSaver(s, "Your roommate's account is running the aircon, so Saver stopped and left it alone."); return; }
     if (on !== (v.phase === 'on') && !v.failures) {
-      // Switched elsewhere (official app, remote or a roommate). Never fight it. An on during a rest is not
-      // adopted: it may be a roommate's session, and Saver's commands would move its charge to this account.
-      stopSaver(s, on ? 'The aircon was switched on outside this app during a rest, so Saver stopped and left it alone.' : 'The aircon was switched off elsewhere, so Saver stopped.');
+      // Switched elsewhere (official app, remote or a roommate). Never fight it. An on during a rest is adopted
+      // only on your wallet: cycling a roommate's session would move its charge to this account.
+      if (on && s.session?.mine) { v.phase = 'on'; v.phaseStart = now(); return; }
+      stopSaver(s, !on ? 'The aircon was switched off elsewhere, so Saver stopped.' : s.session?.known
+        ? "Your roommate switched the aircon on with their account, so Saver stopped and left it alone."
+        : 'The aircon was switched on outside this app during a rest, so Saver stopped and left it alone.');
       return;
     }
     if (now() - v.phaseStart < phaseMs(v)) return;
@@ -320,7 +331,7 @@ export function createApp({ client = createDaikinClient(), now = Date.now, sessi
       await record(s);
       if (s.offWanted) await settleOff(s);
       else if (s.saver?.state === 'running') await steer(s);
-      // Saver only cycles sessions this app started. One started elsewhere may be a roommate's.
+      // Saver only cycles your sessions: started here, or on your wallet from the remote or official app.
       else if (s.status.power && s.session?.mine && (s.saverConfig?.enabled ?? SAVER_DEFAULTS.enabled) && !s.saver?.blocked) await beginSaver(s);
     } catch (error) {
       if (error.status === 401) {

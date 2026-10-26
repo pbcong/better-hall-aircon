@@ -13,12 +13,12 @@ async function fixture(t, options = {}) {
   let power = false;
   let setpoint = 25;
   let failure = null;
-  // account: whose session Daikin reports. stuck: Daikin accepts a command but the unit does not change.
-  let account = null, stuck = false;
+  // payer: whose wallet Daikin reports while on ('you', 'other' or null). stuck: Daikin accepts a command but the unit does not change.
+  let payer = null, stuck = false;
   const commands = [];
   const temperatures = [];
   const client = {
-    status: async token => { assert.equal(token, TOKEN); if (failure) throw failure; return { power, temperature: 26, setpoint, account, checkedAt: clock }; },
+    status: async token => { assert.equal(token, TOKEN); if (failure) throw failure; return { power, temperature: 26, setpoint, payer: power ? payer : null, checkedAt: clock }; },
     control: async (token, next) => { assert.equal(token, TOKEN); commands.push(next); if (failure) throw failure; if (!stuck) power = next; },
     temperature: async (token, next) => { assert.equal(token, TOKEN); temperatures.push(next); if (failure) throw failure; setpoint = next; },
   };
@@ -45,7 +45,7 @@ async function fixture(t, options = {}) {
     return { code, value, headers };
   }
   return { app, client, request, commands, temperatures, advance: ms => { clock += ms; }, fail: error => { failure = error; },
-    room: values => { ({ power = power, account = account, stuck = stuck } = values); } };
+    room: values => { ({ power = power, payer = payer, stuck = stuck } = values); } };
 }
 
 const returnUrl = 'https://cmsntu-prod.daikinpayu.com/adfs/saml/redirect/fake-login-code-0123456789';
@@ -671,9 +671,39 @@ test('a slow first shutdown attempt is still retried after the two-minute window
   assert.equal((await f.request('/api/state')).value.timer.state, 'completed'); assert.equal(f.commands.at(-1), false);
 });
 
-test('status never exposes identity, even the linked account', () => {
-  const normalized = normalizeStatus({ data: { residence_id: 'U1234567A', aircon: { power: 1, account: { residence_id: 'U7654321B' } } } });
-  assert.ok(!/U1234567A|U7654321B/.test(JSON.stringify(normalized)));
+test('the paying wallet is compared with your ID; the room default account is ignored and no ID leaks', () => {
+  const status = wallet => normalizeStatus({ data: { residence_id: 'U1234567A', aircon: { power: wallet ? 1 : 0, account: { residence_id: 'U7654321B' }, wallet: wallet ? { residence_id: wallet } : null } } });
+  assert.equal(status('U1234567A').payer, 'you');
+  assert.equal(status('U7654321B').payer, 'other');
+  assert.equal(status(null).payer, null);
+  assert.ok(!/U1234567A|U7654321B/.test(JSON.stringify(status('U7654321B'))));
+});
+test("a roommate's session is labelled, never cycled by Saver, and your remote session still is", async t => {
+  const f = await fixture(t); await f.request('/api/session');
+  await f.request('/api/connect', { token: TOKEN });
+  f.room({ power: true, payer: 'other' });
+  f.advance(60000); await f.app.tick();
+  let state = (await f.request('/api/state')).value;
+  assert.deepEqual([state.session.mine, state.session.known], [false, true]);
+  assert.equal(state.saver, null);
+  f.advance(3600000); await f.app.tick(); assert.deepEqual(f.commands, []);
+  f.room({ power: false }); f.advance(60000); await f.app.tick();
+  // Your own wallet, switched on with the remote: Saver cycles it as before.
+  f.room({ power: true, payer: 'you' }); f.advance(5 * 60000); await f.app.tick();
+  state = (await f.request('/api/state')).value;
+  assert.equal(state.session.mine, true); assert.equal(state.saver.state, 'running');
+});
+test("Saver stops when a roommate's wallet takes over during a rest", async t => {
+  const f = await fixture(t); await f.request('/api/session');
+  await f.request('/api/connect', { token: TOKEN });
+  f.room({ payer: 'you' }); await f.request('/api/power', { power: true });
+  f.advance(31 * 60000); await f.app.tick();
+  assert.equal((await f.request('/api/state')).value.saver.phase, 'off');
+  f.room({ power: true, payer: 'other' }); f.advance(60000); await f.app.tick();
+  const state = (await f.request('/api/state')).value;
+  assert.equal(state.saver.state, 'stopped'); assert.match(state.saver.reason, /roommate/);
+  const sent = f.commands.length;
+  f.advance(3600000); await f.app.tick(); assert.equal(f.commands.length, sent);
 });
 test('a session switched on during a Saver rest is left alone, not cycled with this account', async t => {
   const f = await fixture(t); await f.request('/api/session');

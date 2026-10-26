@@ -158,14 +158,13 @@ function paint() {
   $('power').setAttribute('aria-label', on ? 'Turn aircon off' : 'Turn aircon on');
   show('power-state', switching ? (state.powerPending ? 'Turning on…' : 'Turning off…')
     : !state.status ? 'Status unavailable' : resting ? 'Resting · Saver' : state.status.power ? 'Cooling' : 'Off');
-  // Shared room: Daikin does not say whose wallet a session uses. A session this app started is yours; one
-  // started elsewhere may be a roommate's. After switch-off your balance settles it.
+  // Shared room: whose wallet the running session charges (Daikin reports it while on), then what the last one cost.
   const last = state.lastSession, recent = last?.result && last.result !== 'unknown' && clockNow() - last.end < 12 * 3600000;
-  const account = switching || state.mode !== 'live' ? null : on ? (resting || state.session?.mine ? 'you' : state.session ? 'other' : null)
+  const account = switching || state.mode !== 'live' ? null : on ? (resting || state.session?.mine ? 'you' : state.session?.known ? 'other' : state.session ? 'outside' : null)
     : recent ? `last-${last.result}` : null;
   $('payer').hidden = !account;
   $('payer').dataset.account = account ?? '';
-  show('payer', { you: 'Your account', other: 'Started outside this app · may be your roommate’s',
+  show('payer', { you: 'Your account', other: 'Roommate’s account · not charged to you', outside: 'Started outside this app · may be your roommate’s',
     'last-you': `Last session charged to you${last?.charged ? ` · $${last.charged.toFixed(2)}` : ''}`,
     'last-other': 'Last session wasn’t charged to you' }[account] ?? '');
   show('temperature', state.status?.temperature ?? '--');
@@ -272,7 +271,7 @@ $('power').addEventListener('click', () => {
   const next = $('power').getAttribute('aria-pressed') !== 'true', at = clockNow();
   if (!next) { clearTimeout(temperatureTimer); temperatureDirty = false; }
   void optimistic(view => ({ ...view, powerPending: next, turningOff: false, status: { ...view.status, power: next, },
-    ...(next ? { session: { mine: true, start: at } } : {}),
+    ...(next ? { session: { mine: true, known: false, start: at } } : {}),
     saver: !next ? endSaver(view.saver) : view.saverConfig?.enabled ? startSaver(view.saverConfig, at) : endSaver(view.saver),
     timer: !next && view.timer?.state === 'scheduled' ? { ...view.timer, state: 'completed', completedBy: 'manual' } : view.timer,
   }), async () => { await api('/api/power', { power: next }); void loadUsage(); });
