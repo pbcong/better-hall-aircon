@@ -65,3 +65,15 @@ test('stored day totals fill any date range and long ranges bucket into weeks an
   const years = bucket(span(stored, '2025-01-01', '2026-06-30'));
   assert.equal(years.size, 'month'); assert.equal(years.bars.length, 18);
 });
+test("a roommate's session is shown as cooling but never counted as your time or cost", async () => {
+  const { summarize, tally, emptyDay } = await import('../public/usage.js');
+  const minute = 60000, start = Date.parse('2026-10-14T02:00:00+08:00');
+  const rows = [{ t: start - minute, p: 0, b: 5 }];
+  for (let i = 0; i <= 30; i++) rows.push({ t: start + i * minute, p: 1, o: 1, b: 5 });
+  rows.push({ t: start + 31 * minute, p: 0, b: 5 });
+  const summary = summarize(rows, start + 40 * minute);
+  assert.equal(summary.onTodayMs, 0); assert.equal(summary.sessions.length, 0); assert.equal(summary.open, null);
+  const day = emptyDay('2026-10-14');
+  for (let i = 1; i < rows.length; i++) tally(() => day, rows[i - 1], rows[i]);
+  assert.equal(day.onMs, 0); assert.equal(day.starts, 0); assert.equal(day.restMs, 0);
+});

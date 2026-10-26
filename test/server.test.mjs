@@ -13,11 +13,13 @@ async function fixture(t, options = {}) {
   let power = false;
   let setpoint = 25;
   let failure = null;
+  // account: whose session Daikin reports. stuck: Daikin accepts a command but the unit does not change.
+  let account = null, stuck = false;
   const commands = [];
   const temperatures = [];
   const client = {
-    status: async token => { assert.equal(token, TOKEN); if (failure) throw failure; return { power, temperature: 26, setpoint, checkedAt: clock }; },
-    control: async (token, next) => { assert.equal(token, TOKEN); commands.push(next); if (failure) throw failure; power = next; },
+    status: async token => { assert.equal(token, TOKEN); if (failure) throw failure; return { power, temperature: 26, setpoint, account, checkedAt: clock }; },
+    control: async (token, next) => { assert.equal(token, TOKEN); commands.push(next); if (failure) throw failure; if (!stuck) power = next; },
     temperature: async (token, next) => { assert.equal(token, TOKEN); temperatures.push(next); if (failure) throw failure; setpoint = next; },
   };
   const app = createApp({ client, now: () => clock, pause: async () => {}, ...options });
@@ -42,7 +44,8 @@ async function fixture(t, options = {}) {
     if (value.csrf) csrf = value.csrf;
     return { code, value, headers };
   }
-  return { app, client, request, commands, temperatures, advance: ms => { clock += ms; }, fail: error => { failure = error; } };
+  return { app, client, request, commands, temperatures, advance: ms => { clock += ms; }, fail: error => { failure = error; },
+    room: values => { ({ power = power, account = account, stuck = stuck } = values); } };
 }
 
 const returnUrl = 'https://cmsntu-prod.daikinpayu.com/adfs/saml/redirect/fake-login-code-0123456789';
@@ -665,4 +668,89 @@ test('a slow first shutdown attempt is still retried after the two-minute window
   f.fail(new Error('offline')); f.advance(60000); await f.app.tick();
   f.fail(null); f.advance(150000); await f.app.tick();
   assert.equal((await f.request('/api/state')).value.timer.state, 'completed'); assert.equal(f.commands.at(-1), false);
+});
+
+test('status says whose account a session uses without revealing either ID', () => {
+  const body = (holder, mine = 'U1234567A') => ({ data: { residence_id: mine, aircon: { power: 1, account: holder === undefined ? undefined : { residence_id: holder } } } });
+  assert.equal(normalizeStatus(body('U1234567A')).account, 'you');
+  assert.equal(normalizeStatus(body('U7654321B')).account, 'other');
+  assert.equal(normalizeStatus(body(undefined)).account, null);
+  assert.equal(normalizeStatus(body('U7654321B', null)).account, null);
+  assert.ok(!/U1234567A|U7654321B/.test(JSON.stringify(normalizeStatus(body('U7654321B')))));
+});
+test("a roommate's session is never cycled by Saver or retargeted from this account", async t => {
+  const f = await fixture(t); await f.request('/api/session');
+  await f.request('/api/connect', { token: TOKEN });
+  f.room({ power: true, account: 'other' });
+  f.advance(60000); await f.app.tick();
+  let state = (await f.request('/api/state')).value;
+  assert.notEqual(state.saver?.state, 'running');
+  assert.equal(state.status.account, 'other');
+  assert.deepEqual(f.commands, []);
+  const refused = await f.request('/api/temperature', { setpoint: 23 });
+  assert.equal(refused.code, 409); assert.match(refused.value.error, /roommate/);
+  assert.deepEqual(f.temperatures, []);
+  // Turning it off is still allowed: it is the owner's room too.
+  assert.equal((await f.request('/api/power', { power: false })).code, 200);
+  assert.deepEqual(f.commands, [false]);
+});
+test("Saver stops instead of switching when a roommate takes over during a rest", async t => {
+  const f = await fixture(t); await f.request('/api/session');
+  await f.request('/api/connect', { token: TOKEN });
+  f.room({ account: 'you' });
+  await f.request('/api/power', { power: true });
+  assert.equal((await f.request('/api/state')).value.saver.state, 'running');
+  f.advance(31 * 60000); await f.app.tick();
+  assert.equal((await f.request('/api/state')).value.saver.phase, 'off');
+  f.room({ power: true, account: 'other' });
+  f.advance(60000); await f.app.tick();
+  const state = (await f.request('/api/state')).value;
+  assert.equal(state.saver.state, 'stopped'); assert.match(state.saver.reason, /roommate/);
+  const sent = f.commands.length;
+  f.advance(60 * 60000); await f.app.tick();
+  assert.equal(f.commands.length, sent);
+});
+test('an off Daikin does not confirm is resent until it is, and Saver never restarts meanwhile', async t => {
+  const f = await fixture(t); await f.request('/api/session');
+  await f.request('/api/connect', { token: TOKEN });
+  await f.request('/api/power', { power: true });
+  f.room({ stuck: true });
+  const off = await f.request('/api/power', { power: false });
+  assert.equal(off.code, 200); assert.equal(off.value.turningOff, true);
+  f.advance(15000); await f.app.tick();
+  assert.equal((await f.request('/api/state')).value.saver.state, 'stopped');
+  assert.deepEqual(f.commands, [true, false, false]);
+  f.room({ stuck: false });
+  f.advance(15000); await f.app.tick();
+  const state = (await f.request('/api/state')).value;
+  assert.equal(state.status.power, false); assert.equal(state.turningOff, false);
+  assert.deepEqual(f.commands, [true, false, false, false]);
+  f.advance(10 * 60000); await f.app.tick();
+  assert.equal(f.commands.length, 4);
+});
+test('a turn-off that errors is kept and retried instead of rolled back', async t => {
+  const f = await fixture(t); await f.request('/api/session');
+  await f.request('/api/connect', { token: TOKEN });
+  await f.request('/api/power', { power: true });
+  f.fail(new AppError(502, 'Daikin could not complete the request. Please try again.'));
+  const off = await f.request('/api/power', { power: false });
+  assert.equal(off.code, 200); assert.equal(off.value.turningOff, true);
+  assert.match(off.value.lastResult.message, /keep trying/);
+  f.fail(null); f.advance(15000); await f.app.tick();
+  const state = (await f.request('/api/state')).value;
+  assert.equal(state.status.power, false); assert.equal(state.turningOff, false);
+});
+test('repeated failed turn-offs give up with a warning and still do not start Saver', async t => {
+  const f = await fixture(t); await f.request('/api/session');
+  await f.request('/api/connect', { token: TOKEN });
+  await f.request('/api/power', { power: true });
+  f.room({ stuck: true });
+  await f.request('/api/power', { power: false });
+  for (let i = 0; i < 12; i++) { f.advance(15000); await f.app.tick(); }
+  let state = (await f.request('/api/state')).value;
+  assert.equal(state.turningOff, false); assert.match(state.lastResult.message, /Check it in the room/);
+  assert.equal(f.commands.filter(c => c === false).length, 9);
+  f.advance(30 * 60000); await f.app.tick();
+  state = (await f.request('/api/state')).value;
+  assert.notEqual(state.saver.state, 'running');
 });
