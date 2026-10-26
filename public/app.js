@@ -158,11 +158,16 @@ function paint() {
   $('power').setAttribute('aria-label', on ? 'Turn aircon off' : 'Turn aircon on');
   show('power-state', switching ? (state.powerPending ? 'Turning on…' : 'Turning off…')
     : !state.status ? 'Status unavailable' : resting ? 'Resting · Saver' : state.status.power ? 'Cooling' : 'Off');
-  // Shared room: say whose wallet a running session is charging. Saver's own session is always this account.
-  const account = !on || switching ? null : resting ? 'you' : state.status?.account ?? null;
+  // Shared room: Daikin does not say whose wallet a session uses. A session this app started is yours; one
+  // started elsewhere may be a roommate's. After switch-off your balance settles it.
+  const last = state.lastSession, recent = last?.result && last.result !== 'unknown' && clockNow() - last.end < 12 * 3600000;
+  const account = switching || state.mode !== 'live' ? null : on ? (resting || state.session?.mine ? 'you' : state.session ? 'other' : null)
+    : recent ? `last-${last.result}` : null;
   $('payer').hidden = !account;
   $('payer').dataset.account = account ?? '';
-  show('payer', account === 'you' ? 'Your account' : account === 'other' ? "Roommate's account · not charged to you" : '');
+  show('payer', { you: 'Your account', other: 'Started outside this app · may be your roommate’s',
+    'last-you': `Last session charged to you${last?.charged ? ` · $${last.charged.toFixed(2)}` : ''}`,
+    'last-other': 'Last session wasn’t charged to you' }[account] ?? '');
   show('temperature', state.status?.temperature ?? '--');
   const stale = state.status && clockNow() - state.status.checkedAt > 120000;
   $('refresh').hidden = !stale;
@@ -175,8 +180,7 @@ function paint() {
   if ($('setpoint').textContent !== (setpoint == null ? '--' : `${setpoint}°`)) $('setpoint').textContent = setpoint == null ? '--' : `${setpoint}°`;
   $('setpoint').toggleAttribute('data-pending', temperatureDirty);
   $('temperature-current').textContent = temperatureDirty ? (temperatureSending ? `Setting ${target}°…` : '')
-    : (!state.status?.power ? (resting ? 'Adjustable when Saver cools again' : 'Turn on to adjust')
-      : state.status.account === 'other' ? "Your roommate's session · adjust it from their app" : '');
+    : (!state.status?.power ? (resting ? 'Adjustable when Saver cools again' : 'Turn on to adjust') : '');
 
   toast(state.lastResult);
   const timer = state.timer;
@@ -209,8 +213,7 @@ function paint() {
   $('automatic-login').disabled = working || state.busy || !helperReady || state.loginWaiting;
   $('automatic-login').toggleAttribute('data-unavailable', !helperReady || Boolean(state.loginWaiting));
   // The stepper stays live while its own change is being sent, so taps can keep adjusting.
-  // A roommate's session is left alone: the temperature command could move its charge to this account.
-  const off = !state.status?.power || setpoint == null || state.status.account === 'other' || Boolean(state.turningOff);
+  const off = !state.status?.power || setpoint == null || Boolean(state.turningOff);
   const blocked = (working && !temperatureSending) || state.busy || off;
   $('temperature-down').disabled = blocked || setpoint <= limits.min;
   $('temperature-up').disabled = blocked || setpoint >= limits.max;
@@ -268,7 +271,8 @@ const endSaver = saver => saver?.state === 'running' ? { ...saver, state: 'stopp
 $('power').addEventListener('click', () => {
   const next = $('power').getAttribute('aria-pressed') !== 'true', at = clockNow();
   if (!next) { clearTimeout(temperatureTimer); temperatureDirty = false; }
-  void optimistic(view => ({ ...view, powerPending: next, turningOff: false, status: { ...view.status, power: next, ...(next && view.mode === 'live' ? { account: 'you' } : {}) },
+  void optimistic(view => ({ ...view, powerPending: next, turningOff: false, status: { ...view.status, power: next, },
+    ...(next ? { session: { mine: true, start: at } } : {}),
     saver: !next ? endSaver(view.saver) : view.saverConfig?.enabled ? startSaver(view.saverConfig, at) : endSaver(view.saver),
     timer: !next && view.timer?.state === 'scheduled' ? { ...view.timer, state: 'completed', completedBy: 'manual' } : view.timer,
   }), async () => { await api('/api/power', { power: next }); void loadUsage(); });

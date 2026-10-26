@@ -608,20 +608,21 @@ test('day totals are kept from every reading, rebuilt once from earlier raw rows
   assert.equal(days[0].charged, 0); assert.equal(days[1].charged, 0.1);
   assert.deepEqual(await history.months(), ['2026-10']);
 });
-test('an aircon found running without Saver starts cycling at the next reading, unless Saver is off or gave up', async t => {
+test('Saver only cycles sessions this app started, never one switched on elsewhere', async t => {
   let power = true, stuck = false; const commands = [];
   const client = { status: async () => ({ power, temperature: 25, setpoint: 22, balance: 5, checkedAt: 0 }), control: async (_token, next) => { commands.push(next); if (!stuck) power = next; } };
   const f = await fixture(t, { client }); await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
-  assert.equal((await f.request('/api/state')).value.saver, null);
+  // Found running (official app, remote or a roommate): left alone and marked as started elsewhere.
   f.advance(60000); await f.app.tick();
   let state = (await f.request('/api/state')).value;
-  assert.equal(state.saver.state, 'running'); assert.deepEqual(commands, []);
-  f.advance(600000); await f.app.tick(); assert.deepEqual(commands, [false]);
-  // Switched on again from the official app during a rest: adopted, not restarted.
-  power = true; f.advance(60000); await f.app.tick();
-  assert.equal((await f.request('/api/state')).value.saver.phase, 'on');
+  assert.equal(state.saver, null); assert.equal(state.session.mine, false); assert.deepEqual(commands, []);
+  f.advance(3600000); await f.app.tick(); assert.deepEqual(commands, []);
+  // Turned off and on from this app: now it is this account's session, and Saver cycles it.
+  await f.request('/api/power', { power: false }); await f.request('/api/power', { power: true });
+  state = (await f.request('/api/state')).value;
+  assert.equal(state.session.mine, true); assert.equal(state.saver.state, 'running');
   // After giving up on unconfirmed commands, Saver does not restart itself.
-  stuck = true; f.advance(300000);
+  stuck = true; f.advance(31 * 60000);
   for (let i = 0; i < 8; i++) { await f.app.tick(); f.advance(20000); }
   state = (await f.request('/api/state')).value;
   assert.equal(state.saver.blocked, true); const count = commands.length;
@@ -670,45 +671,43 @@ test('a slow first shutdown attempt is still retried after the two-minute window
   assert.equal((await f.request('/api/state')).value.timer.state, 'completed'); assert.equal(f.commands.at(-1), false);
 });
 
-test('status says whose account a session uses without revealing either ID', () => {
-  const body = (holder, mine = 'U1234567A') => ({ data: { residence_id: mine, aircon: { power: 1, account: holder === undefined ? undefined : { residence_id: holder } } } });
-  assert.equal(normalizeStatus(body('U1234567A')).account, 'you');
-  assert.equal(normalizeStatus(body('U7654321B')).account, 'other');
-  assert.equal(normalizeStatus(body(undefined)).account, null);
-  assert.equal(normalizeStatus(body('U7654321B', null)).account, null);
-  assert.ok(!/U1234567A|U7654321B/.test(JSON.stringify(normalizeStatus(body('U7654321B')))));
+test('status never exposes identity, even the linked account', () => {
+  const normalized = normalizeStatus({ data: { residence_id: 'U1234567A', aircon: { power: 1, account: { residence_id: 'U7654321B' } } } });
+  assert.ok(!/U1234567A|U7654321B/.test(JSON.stringify(normalized)));
 });
-test("a roommate's session is never cycled by Saver or retargeted from this account", async t => {
+test('a session switched on during a Saver rest is left alone, not cycled with this account', async t => {
   const f = await fixture(t); await f.request('/api/session');
   await f.request('/api/connect', { token: TOKEN });
-  f.room({ power: true, account: 'other' });
-  f.advance(60000); await f.app.tick();
-  let state = (await f.request('/api/state')).value;
-  assert.notEqual(state.saver?.state, 'running');
-  assert.equal(state.status.account, 'other');
-  assert.deepEqual(f.commands, []);
-  const refused = await f.request('/api/temperature', { setpoint: 23 });
-  assert.equal(refused.code, 409); assert.match(refused.value.error, /roommate/);
-  assert.deepEqual(f.temperatures, []);
-  // Turning it off is still allowed: it is the owner's room too.
-  assert.equal((await f.request('/api/power', { power: false })).code, 200);
-  assert.deepEqual(f.commands, [false]);
-});
-test("Saver stops instead of switching when a roommate takes over during a rest", async t => {
-  const f = await fixture(t); await f.request('/api/session');
-  await f.request('/api/connect', { token: TOKEN });
-  f.room({ account: 'you' });
   await f.request('/api/power', { power: true });
   assert.equal((await f.request('/api/state')).value.saver.state, 'running');
   f.advance(31 * 60000); await f.app.tick();
   assert.equal((await f.request('/api/state')).value.saver.phase, 'off');
-  f.room({ power: true, account: 'other' });
+  f.advance(5 * 60000); f.room({ power: true });
   f.advance(60000); await f.app.tick();
   const state = (await f.request('/api/state')).value;
-  assert.equal(state.saver.state, 'stopped'); assert.match(state.saver.reason, /roommate/);
+  assert.equal(state.saver.state, 'stopped'); assert.match(state.saver.reason, /outside this app/);
+  assert.equal(state.session.mine, false);
   const sent = f.commands.length;
   f.advance(60 * 60000); await f.app.tick();
   assert.equal(f.commands.length, sent);
+});
+test('whose wallet paid is read from the balance after switch-off', async t => {
+  let power = false, balance = 5; const commands = [];
+  const client = { status: async () => ({ power, temperature: 25, setpoint: 22, balance, checkedAt: 0 }), control: async (_token, next) => { commands.push(next); power = next; } };
+  const f = await fixture(t, { client }); await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
+  await f.request('/api/saver', { enabled: false });
+  // Your session: the balance drops when it switches off.
+  await f.request('/api/power', { power: true }); f.advance(20 * 60000);
+  balance = 4.87; let state = (await f.request('/api/power', { power: false })).value;
+  assert.deepEqual([state.lastSession.result, state.lastSession.charged], ['you', 0.13]);
+  // A roommate's session: on and off elsewhere, and your balance never moves.
+  power = true; f.advance(5 * 60000); await f.app.tick();
+  assert.equal((await f.request('/api/state')).value.session.mine, false);
+  f.advance(30 * 60000); power = false; await f.app.tick();
+  assert.equal((await f.request('/api/state')).value.lastSession.result, null);
+  for (let i = 0; i < 3; i++) { f.advance(5 * 60000); await f.app.tick(); }
+  state = (await f.request('/api/state')).value;
+  assert.equal(state.lastSession.result, 'other'); assert.equal(state.session, null);
 });
 test('an off Daikin does not confirm is resent until it is, and Saver never restarts meanwhile', async t => {
   const f = await fixture(t); await f.request('/api/session');

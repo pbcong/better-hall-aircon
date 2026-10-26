@@ -1,5 +1,4 @@
-// Usage maths and chart for logged readings. Rows: t time, p power, r room °C, s target, b balance, m saver, e event,
-// o a roommate's session (on, but billed to their account, so it is not your cost).
+// Usage maths and chart for logged readings. Rows: t time, p power, r room °C, s target, b balance, m saver, e event.
 import { singaporeDate } from './schedule.js';
 
 const GAP = 10 * 60000; // Longer silences are treated as missing data, not as cooling time.
@@ -16,7 +15,7 @@ export function summarize(rows, now = Date.now()) {
       const span = Math.min(row.t - prev.t, GAP);
       const drop = prev.b != null && row.b != null ? prev.b - row.b : 0;
       if (drop < 0) toppedUp -= drop;
-      if (prev.p && !prev.o) {
+      if (prev.p) {
         if (open) open.ms += span;
         if (singaporeDate(row.t) === today) onTodayMs += span;
       }
@@ -30,8 +29,8 @@ export function summarize(rows, now = Date.now()) {
     }
     if (row.m && row.r != null) { saver.tempSum += row.r; saver.tempCount++; }
     // A session already running when logging began (or resumed) has an unknown length, so it cannot inform the rate.
-    if (row.p && !row.o && !open) open = { start: row.t, end: null, ms: 0, cost: 0, saver: Boolean(row.m), partial: !prev || row.t - prev.t > GAP };
-    if ((!row.p || row.o) && open) { open.end = row.t; sessions.push(open); last = open; open = null; }
+    if (row.p && !open) open = { start: row.t, end: null, ms: 0, cost: 0, saver: Boolean(row.m), partial: !prev || row.t - prev.t > GAP };
+    if (!row.p && open) { open.end = row.t; sessions.push(open); last = open; open = null; }
   }
   const billed = sessions.filter(s => !s.unlogged && !s.partial && s.ms >= 60000);
   const billedMs = billed.reduce((sum, s) => sum + s.ms, 0);
@@ -58,12 +57,12 @@ export function tally(dayFor, prev, row) {
   if (day && row.t - prev.t <= GAP) {
     const span = row.t - prev.t;
     day.loggedMs += span;
-    if (prev.p && !prev.o) day.onMs += span; else if (!prev.p && prev.m) day.restMs += span;
+    if (prev.p) day.onMs += span; else if (prev.m) day.restMs += span;
     if ((prev.p || prev.m) && prev.r != null) { day.roomSum += prev.r * span; day.roomMs += span; }
   }
   const settled = dayFor(singaporeDate(row.t));
   if (settled && prev.b != null && row.b != null && prev.b > row.b) settled.charged = Math.round((settled.charged + prev.b - row.b) * 100) / 100;
-  if (settled && row.p && !row.o && (!prev.p || prev.o)) settled.starts++;
+  if (settled && row.p && !prev.p) settled.starts++;
 }
 // Cost is time switched on × rate, so it splits cleanly at midnight and includes a session not yet charged.
 // Saved is Saver rest time: minutes that running nonstop would have billed.
@@ -178,7 +177,7 @@ export function drawChart(svg, tooltip, rows, from, to) {
     cross.setAttribute('x1', x(row.t)); cross.setAttribute('x2', x(row.t)); cross.setAttribute('visibility', 'visible');
     if (row.r != null) { dot.setAttribute('cx', x(row.t)); dot.setAttribute('cy', y(row.r)); dot.setAttribute('visibility', 'visible'); }
     tooltip.replaceChildren();
-    for (const [label, value] of [[clockTime(row.t, true), row.p ? (row.o ? "Cooling · roommate's account" : 'Cooling') : 'Off'], ['Room', row.r == null ? '--' : `${row.r}°C`], ['Target', row.s == null ? '--' : `${row.s}°C`], ['Balance', money(row.b)]]) {
+    for (const [label, value] of [[clockTime(row.t, true), row.p ? 'Cooling' : 'Off'], ['Room', row.r == null ? '--' : `${row.r}°C`], ['Target', row.s == null ? '--' : `${row.s}°C`], ['Balance', money(row.b)]]) {
       const line = document.createElement('div'), name = document.createElement('span'), strong = document.createElement('strong');
       name.textContent = label; strong.textContent = value; line.append(name, strong); tooltip.append(line);
     }
@@ -189,8 +188,8 @@ export function drawChart(svg, tooltip, rows, from, to) {
 }
 
 export function toCsv(rows) {
-  return ['time_iso,epoch_ms,power,room_c,target_c,balance,saver,event,roommate',
-    ...rows.map(row => [new Date(row.t).toISOString(), row.t, row.p, row.r ?? '', row.s ?? '', row.b ?? '', row.m ?? '', row.e ?? '', row.o ?? ''].join(','))].join('\n');
+  return ['time_iso,epoch_ms,power,room_c,target_c,balance,saver,event',
+    ...rows.map(row => [new Date(row.t).toISOString(), row.t, row.p, row.r ?? '', row.s ?? '', row.b ?? '', row.m ?? '', row.e ?? ''].join(','))].join('\n');
 }
 
 // Stacked daily bars on one dollar axis: spent at the base, Saver's saving on top, so the full bar is what nonstop would have cost.
