@@ -329,12 +329,16 @@ export function createApp({ client = createDaikinClient(), now = Date.now, sessi
       }
       if (!timer || timer.nextAttempt > now() || timer.state !== 'scheduled' || s.busy) continue;
       await exclusive(s, async () => {
-        if (now() - timer.dueAt > 120000) {
+        // Only a first attempt can be stale; retries after a slow Daikin reply are still wanted.
+        if (!timer.attempts && now() - timer.dueAt > 120000) {
           timer.state = 'failed';
           timer.error = 'Timer missed while the server was unavailable. Check your aircon manually.';
           s.lastResult = { at: now(), confirmed: false, message: timer.error };
           await persist(); return;
         }
+        // End Saver before anything else, so a failed or slow shutdown can never be undone by Saver
+        // turning the aircon back on after a rest.
+        stopSaver(s, 'Your shutdown timer turned the aircon off, so Saver stopped.');
         timer.attempts++;
         let confirmed = false;
         try {
@@ -342,9 +346,14 @@ export function createApp({ client = createDaikinClient(), now = Date.now, sessi
         } catch (error) {
           s.lastResult = { at: now(), confirmed: false, message: error instanceof AppError ? error.message : 'Shutdown failed.' };
           timer.error = s.lastResult.message;
+          // During a Saver rest the unit is already off, and Daikin may refuse a redundant off. That is a success.
+          if (error.status !== 401) {
+            try { s.status = await status(s); confirmed = s.status.power === false; } catch { /* Retry below. */ }
+            if (confirmed) s.lastResult = { at: now(), confirmed, message: 'Daikin reports aircon off.' };
+          }
           if (error.status === 401) { s.token = null; s.mode = null; s.remember = false; timer.state = 'failed'; stopSaver(s, 'Daikin sign-in expired, so Saver stopped.'); await persist(); return; }
         }
-        if (confirmed) { timer.state = 'completed'; delete timer.error; stopSaver(s, 'Your shutdown timer turned the aircon off, so Saver stopped.'); }
+        if (confirmed) { timer.state = 'completed'; delete timer.error; }
         else if (timer.attempts >= 3) {
           timer.state = 'failed';
           timer.error ??= 'Daikin has not confirmed aircon off after three attempts. Check your aircon manually.';

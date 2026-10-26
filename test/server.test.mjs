@@ -5,7 +5,7 @@ import { mkdtemp, readFile, writeFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createVault } from '../vault.mjs';
-import { createApp, createDaikinClient, parseToken, parseAirconCredential, parseLoginReturn, normalizeStatus } from '../server.mjs';
+import { AppError, createApp, createDaikinClient, parseToken, parseAirconCredential, parseLoginReturn, normalizeStatus } from '../server.mjs';
 
 const TOKEN = 'test-aircon-token-0123456789';
 async function fixture(t, options = {}) {
@@ -626,4 +626,43 @@ test('an aircon found running without Saver starts cycling at the next reading, 
   // Switched off in settings: a running aircon is left alone.
   stuck = false; await f.request('/api/saver', { enabled: false }); await f.request('/api/power', { power: true });
   f.advance(3600000); await f.app.tick(); assert.equal((await f.request('/api/state')).value.saver.state, 'stopped');
+});
+
+test('a shutdown during a Saver rest succeeds even if Daikin refuses the redundant off', async t => {
+  const f = await fixture(t); await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
+  await f.request('/api/saver', saverSettings(3, 10)); await f.request('/api/power', { power: true });
+  for (let minute = 0; minute < 3; minute++) { f.advance(60000); await f.app.tick(); }
+  assert.equal((await f.request('/api/state')).value.saver.phase, 'off'); assert.deepEqual(f.commands, [true, false]);
+  await f.request('/api/timer', { minutes: 1 });
+  const control = f.client.control;
+  f.client.control = async () => { throw new AppError(502, 'Daikin did not accept the request.'); };
+  f.advance(60000); await f.app.tick();
+  const state = (await f.request('/api/state')).value;
+  assert.equal(state.timer.state, 'completed'); assert.equal(state.saver.state, 'stopped');
+  f.client.control = control;
+  for (let minute = 0; minute < 15; minute++) { f.advance(60000); await f.app.tick(); }
+  assert.deepEqual(f.commands, [true, false]);
+});
+
+test('a failed shutdown still ends Saver so it never turns the aircon back on', async t => {
+  const f = await fixture(t); await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
+  await f.request('/api/saver', saverSettings(3, 10)); await f.request('/api/power', { power: true });
+  for (let minute = 0; minute < 3; minute++) { f.advance(60000); await f.app.tick(); }
+  await f.request('/api/timer', { minutes: 1 });
+  f.fail(new Error('offline'));
+  f.advance(60000); await f.app.tick(); f.advance(15000); await f.app.tick(); f.advance(15000); await f.app.tick();
+  f.fail(null);
+  const state = (await f.request('/api/state')).value;
+  assert.equal(state.timer.state, 'failed'); assert.equal(state.saver.state, 'stopped');
+  for (let minute = 0; minute < 15; minute++) { f.advance(60000); await f.app.tick(); }
+  assert.equal(f.commands.filter(c => c === true).length, 1);
+});
+
+test('a slow first shutdown attempt is still retried after the two-minute window', async t => {
+  const f = await fixture(t); await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
+  await f.request('/api/saver', { enabled: false }); await f.request('/api/power', { power: true });
+  await f.request('/api/timer', { minutes: 1 });
+  f.fail(new Error('offline')); f.advance(60000); await f.app.tick();
+  f.fail(null); f.advance(150000); await f.app.tick();
+  assert.equal((await f.request('/api/state')).value.timer.state, 'completed'); assert.equal(f.commands.at(-1), false);
 });
