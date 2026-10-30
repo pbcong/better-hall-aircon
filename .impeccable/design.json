@@ -1,0 +1,500 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-30T10:41:39+00:00",
+  "title": "Design System: Aircon",
+  "extensions": {
+    "colorMeta": {
+      "night-ground": {
+        "role": "neutral",
+        "displayName": "Night Ground",
+        "tonalRamp": [
+          "#1e242e",
+          "#323e54",
+          "#43577e",
+          "#526faa",
+          "#7c91ba",
+          "#a6b2ca",
+          "#ccd2de",
+          "#f0f2f4"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface",
+        "tonalRamp": [
+          "#20242d",
+          "#353f51",
+          "#495978",
+          "#5a72a2",
+          "#8192b4",
+          "#a9b3c7",
+          "#ced3dc",
+          "#f1f2f4"
+        ]
+      },
+      "raised": {
+        "role": "neutral",
+        "displayName": "Raised",
+        "tonalRamp": [
+          "#20242c",
+          "#363f51",
+          "#4a5877",
+          "#5b71a0",
+          "#8392b3",
+          "#aab3c6",
+          "#ced3dc",
+          "#f1f2f4"
+        ]
+      },
+      "fill": {
+        "role": "neutral",
+        "displayName": "Fill",
+        "tonalRamp": [
+          "#21242c",
+          "#373f50",
+          "#4b5a76",
+          "#5e739d",
+          "#8593b1",
+          "#abb4c5",
+          "#cfd3db",
+          "#f1f2f4"
+        ]
+      },
+      "fill-hover": {
+        "role": "neutral",
+        "displayName": "Fill Hover",
+        "tonalRamp": [
+          "#21252b",
+          "#38404f",
+          "#4d5a74",
+          "#60749b",
+          "#8694af",
+          "#acb4c4",
+          "#cfd3db",
+          "#f1f2f4"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Text",
+        "tonalRamp": [
+          "#1d2330",
+          "#2f3c58",
+          "#3d5584",
+          "#486cb3",
+          "#758ec0",
+          "#a2b1ce",
+          "#cad2e0",
+          "#f0f1f5"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted",
+        "tonalRamp": [
+          "#22252a",
+          "#3b414c",
+          "#515d70",
+          "#677995",
+          "#8b97ab",
+          "#aeb6c2",
+          "#d1d4da",
+          "#f1f2f3"
+        ]
+      },
+      "faint": {
+        "role": "neutral",
+        "displayName": "Faint",
+        "tonalRamp": [
+          "#232629",
+          "#3d424a",
+          "#555e6c",
+          "#6d7a8e",
+          "#8f98a7",
+          "#b1b6bf",
+          "#d2d4d8",
+          "#f1f2f3"
+        ]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline"
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Action Blue",
+        "tonalRamp": [
+          "#141f39",
+          "#1b346c",
+          "#1c47a5",
+          "#1657e5",
+          "#5280e3",
+          "#8da8e3",
+          "#c0cdea",
+          "#edf0f7"
+        ]
+      },
+      "accent-hover": {
+        "role": "primary",
+        "displayName": "Deep Action Blue",
+        "tonalRamp": [
+          "#151e37",
+          "#1f3268",
+          "#22439f",
+          "#1f50dd",
+          "#587bdd",
+          "#90a5e0",
+          "#c2cce8",
+          "#eef0f7"
+        ]
+      },
+      "accent-text": {
+        "role": "primary",
+        "displayName": "Link Blue",
+        "tonalRamp": [
+          "#10213c",
+          "#133874",
+          "#0e4db3",
+          "#0160fa",
+          "#4486f2",
+          "#84acec",
+          "#bccfee",
+          "#ecf1f8"
+        ]
+      },
+      "cool": {
+        "role": "secondary",
+        "displayName": "Cooling Blue",
+        "tonalRamp": [
+          "#10233c",
+          "#133d74",
+          "#0e56b3",
+          "#016efa",
+          "#4490f2",
+          "#84b1ec",
+          "#bcd2ee",
+          "#ecf2f8"
+        ]
+      },
+      "rest": {
+        "role": "secondary",
+        "displayName": "Rest Indigo",
+        "tonalRamp": [
+          "#18133a",
+          "#24196e",
+          "#2a19a8",
+          "#2c11ea",
+          "#614fe7",
+          "#968be5",
+          "#c5bfeb",
+          "#eeedf7"
+        ]
+      },
+      "rest-text": {
+        "role": "secondary",
+        "displayName": "Pale Indigo",
+        "tonalRamp": [
+          "#17123a",
+          "#23186e",
+          "#2917aa",
+          "#2a0fed",
+          "#604de9",
+          "#9589e6",
+          "#c4bfeb",
+          "#eeedf7"
+        ]
+      },
+      "rest-deep": {
+        "role": "secondary",
+        "displayName": "Deep Indigo",
+        "tonalRamp": [
+          "#1b1735",
+          "#2a2364",
+          "#352899",
+          "#3c29d2",
+          "#6d5fd6",
+          "#9d94db",
+          "#c8c4e6",
+          "#efeef6"
+        ]
+      },
+      "off": {
+        "role": "secondary",
+        "displayName": "Off Slate",
+        "tonalRamp": [
+          "#21242b",
+          "#39404e",
+          "#4e5a73",
+          "#627499",
+          "#8794ae",
+          "#acb4c4",
+          "#d0d3db",
+          "#f1f2f4"
+        ]
+      },
+      "green": {
+        "role": "secondary",
+        "displayName": "iOS Green",
+        "tonalRamp": [
+          "#193426",
+          "#266143",
+          "#2e9360",
+          "#32ca7d",
+          "#65d09a",
+          "#98d8b8",
+          "#c6e4d5",
+          "#eff6f2"
+        ]
+      },
+      "amber": {
+        "role": "secondary",
+        "displayName": "Caution Amber",
+        "tonalRamp": [
+          "#3a2b12",
+          "#704e17",
+          "#ac7215",
+          "#ef980c",
+          "#eaae4b",
+          "#e8c388",
+          "#ecdabe",
+          "#f8f4ed"
+        ]
+      },
+      "red": {
+        "role": "secondary",
+        "displayName": "Failure Red",
+        "tonalRamp": [
+          "#3c1010",
+          "#741313",
+          "#b30e0e",
+          "#fa0101",
+          "#f24444",
+          "#ec8484",
+          "#eebcbc",
+          "#f8ecec"
+        ]
+      },
+      "band": {
+        "role": "secondary",
+        "displayName": "Cooling Band"
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Room temperature in the dial; 66px phone, 60px under 380px."
+      },
+      "numeral-large": {
+        "displayName": "Numeral Large",
+        "purpose": "Scheduled shutdown time."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Signed-out intro title; 34px on phones."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Card and section headings; sheet titles 22px."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Base text; paragraphs in Muted."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Form labels, dial label, chips, tabs, timer state."
+      },
+      "fine": {
+        "displayName": "Fine",
+        "purpose": "Notes, hints, legends, tile footnotes."
+      }
+    },
+    "shadows": [
+      {
+        "name": "card",
+        "value": "0 1px 2px rgb(0 0 0 / .35), 0 10px 28px -12px rgb(0 0 0 / .6)",
+        "purpose": "Every card and the usage tiles strip."
+      },
+      {
+        "name": "lift",
+        "value": "0 24px 60px -12px rgb(0 0 0 / .75)",
+        "purpose": "Sheets, alerts, toast, chart tooltips."
+      },
+      {
+        "name": "thumb",
+        "value": "0 2px 6px rgb(0 0 0 / .3)",
+        "purpose": "Sliding thumb in segmented and range controls."
+      },
+      {
+        "name": "power",
+        "value": "0 4px 14px -4px rgb(0 0 0 / .6)",
+        "purpose": "Power button at rest; 0 6px 16px -6px rgb(0 0 0 / .7) when on."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease",
+        "value": "cubic-bezier(.32, .72, 0, 1)",
+        "purpose": "iOS ease for colour and state changes (.2–.3s)."
+      },
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(.22, 1, .36, 1)",
+        "purpose": "Fast-out ease for movement: dial arc, thumbs, sheets, press release (.4–.45s)."
+      },
+      {
+        "name": "press",
+        "value": "scale(.96) in .1s",
+        "purpose": "Button press; power button .92, tabs .97. No overshoot."
+      },
+      {
+        "name": "entrance",
+        "value": "opacity 0→1 .3s, translate 8px→0 .4s",
+        "purpose": "Revealed content fades and rises a little."
+      },
+      {
+        "name": "roll",
+        "value": "tick-up / tick-down .35s",
+        "purpose": "Changing values roll in the direction they moved."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "phone",
+        "value": "767px"
+      },
+      {
+        "name": "small-phone",
+        "value": "380px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Solid Action Blue action; full width in forms.",
+      "html": "<button class=\"ds-btn-primary\">Set shutdown</button>",
+      "css": ".ds-btn-primary{font:600 15px/1.5 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;color:#fff;background:var(--accent,#2563eb);border:0;border-radius:14px;padding:12px 18px;min-height:48px;cursor:pointer;transition:background-color .2s cubic-bezier(.32,.72,0,1),transform .4s cubic-bezier(.22,1,.36,1)}.ds-btn-primary:hover{background:var(--accent-hover,#1d4ed8)}.ds-btn-primary:active{transform:scale(.96);transition-duration:.2s,.1s}.ds-btn-primary:focus-visible{outline:2px solid var(--accent-text,#79acff);outline-offset:3px}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Neutral Fill button; the small variant is a 38px pill.",
+      "html": "<button class=\"ds-btn-secondary\">Try practice mode</button> <button class=\"ds-btn-secondary ds-small\">Change</button>",
+      "css": ".ds-btn-secondary{font:600 15px/1.5 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;color:var(--text,#f5f7fb);background:var(--fill,#232b3b);border:0;border-radius:14px;padding:12px 18px;min-height:48px;cursor:pointer;transition:background-color .2s cubic-bezier(.32,.72,0,1),transform .4s cubic-bezier(.22,1,.36,1)}.ds-btn-secondary:hover{background:var(--fill-hover,#2c3547)}.ds-btn-secondary:active{transform:scale(.96)}.ds-btn-secondary:focus-visible{outline:2px solid var(--accent-text,#79acff);outline-offset:3px}.ds-small{min-height:38px;padding:7px 16px;font-size:14px;border-radius:999px}"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Fill field with an Action Blue focus ring and an inset unit.",
+      "html": "<label class=\"ds-field\"><input class=\"ds-input\" type=\"number\" value=\"45\" aria-label=\"Minutes\"><span>min</span></label>",
+      "css": ".ds-field{position:relative;display:block}.ds-field span{position:absolute;right:16px;top:50%;translate:0 -50%;font-size:15px;color:var(--muted,#9ba7ba)}.ds-input{width:100%;box-sizing:border-box;font:600 17px/1.5 -apple-system,system-ui,sans-serif;color:var(--text,#f5f7fb);background:var(--fill,#232b3b);border:1px solid transparent;border-radius:14px;padding:12px 14px;min-height:48px;font-variant-numeric:tabular-nums;transition:border-color .2s cubic-bezier(.32,.72,0,1),box-shadow .2s cubic-bezier(.32,.72,0,1)}.ds-input:hover:not(:focus){border-color:var(--fill-hover,#2c3547)}.ds-input:focus{outline:none;border-color:var(--accent,#2563eb);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent,#2563eb) 25%,transparent)}"
+    },
+    {
+      "name": "Tabs (desktop segmented)",
+      "kind": "nav",
+      "refersTo": "tabs",
+      "description": "Header tab control on wide screens; becomes a bottom tab bar on phones.",
+      "html": "<nav class=\"ds-tabs\" role=\"tablist\"><button role=\"tab\" aria-selected=\"true\">Control</button><button role=\"tab\" aria-selected=\"false\">Usage</button></nav>",
+      "css": ".ds-tabs{display:inline-flex;gap:2px;padding:3px;border-radius:999px;background:var(--surface,#161c28)}.ds-tabs button{font:400 14px/1.5 -apple-system,system-ui,sans-serif;min-height:38px;padding:6px 18px;border:0;border-radius:999px;color:var(--muted,#9ba7ba);background:none;cursor:pointer;transition:color .2s,background-color .2s}.ds-tabs button:hover:not([aria-selected=true]){color:var(--text,#f5f7fb)}.ds-tabs [aria-selected=true]{color:var(--text,#f5f7fb);background:var(--fill,#232b3b)}.ds-tabs button:focus-visible{outline:2px solid var(--accent-text,#79acff);outline-offset:3px}"
+    },
+    {
+      "name": "Timer Chips",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Sleep-timer presets; the open Custom chip inverts.",
+      "html": "<div class=\"ds-chips\"><button>30m</button><button>1h</button><button>2h</button><button>4h</button><button aria-expanded=\"true\">Custom</button></div>",
+      "css": ".ds-chips{display:grid;grid-template-columns:repeat(4,minmax(0,1fr)) auto;gap:8px}.ds-chips button{font:600 15px/1.5 -apple-system,system-ui,sans-serif;font-variant-numeric:tabular-nums;min-height:52px;padding:8px 14px;border:0;border-radius:14px;color:var(--text,#f5f7fb);background:var(--fill,#232b3b);cursor:pointer;transition:background-color .2s,transform .4s cubic-bezier(.22,1,.36,1)}.ds-chips button:hover{background:var(--fill-hover,#2c3547)}.ds-chips button:active{transform:scale(.96)}.ds-chips [aria-expanded=true],.ds-chips [aria-expanded=true]:hover{background:var(--text,#f5f7fb);color:var(--bg,#0b0f17)}.ds-chips button:focus-visible{outline:2px solid var(--accent-text,#79acff);outline-offset:3px}"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Solid Surface card with the soft Card shadow.",
+      "html": "<article class=\"ds-card\"><h2>Sleep timer</h2><p>Turn off in</p></article>",
+      "css": ".ds-card{border-radius:24px;padding:22px;background:var(--surface,#161c28);color:var(--text,#f5f7fb);box-shadow:0 1px 2px rgb(0 0 0/.35),0 10px 28px -12px rgb(0 0 0/.6);font:16px/1.5 -apple-system,system-ui,sans-serif}.ds-card h2{margin:0 0 16px;font-size:17px;font-weight:650;letter-spacing:-.015em}.ds-card p{margin:0;font-size:14px;font-weight:600;color:var(--muted,#9ba7ba)}"
+    },
+    {
+      "name": "Saver Switch",
+      "kind": "custom",
+      "refersTo": "switch-on",
+      "description": "iOS switch; on is iOS Green, never Action Blue.",
+      "html": "<button class=\"ds-switch\" role=\"switch\" aria-checked=\"true\" aria-label=\"Saver\"><span></span></button>",
+      "css": ".ds-switch{position:relative;width:51px;height:31px;padding:0;border:0;border-radius:999px;background:var(--fill-hover,#2c3547);cursor:pointer;transition:background-color .3s cubic-bezier(.32,.72,0,1)}.ds-switch span{position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:999px;background:#fff;box-shadow:0 3px 8px rgb(0 0 0/.3);transition:translate .45s cubic-bezier(.22,1,.36,1),width .25s cubic-bezier(.32,.72,0,1)}.ds-switch[aria-checked=true]{background:var(--green,#30c77b)}.ds-switch[aria-checked=true] span{translate:20px 0}.ds-switch:active span{width:33px}.ds-switch[aria-checked=true]:active span{translate:14px 0}.ds-switch:focus-visible{outline:2px solid var(--accent-text,#79acff);outline-offset:3px}"
+    },
+    {
+      "name": "Climate Dial",
+      "kind": "custom",
+      "refersTo": "power-on",
+      "description": "Signature dial: 270° arc fills the target share of 22–30°C; hue reports cooling, rest or off.",
+      "html": "<div class=\"ds-dial\" data-power=\"on\" style=\"--arc:37.5 100\"><svg viewBox=\"0 0 240 240\" aria-hidden=\"true\"><circle class=\"ds-track\" cx=\"120\" cy=\"120\" r=\"104\" pathLength=\"100\"/><circle class=\"ds-arc\" cx=\"120\" cy=\"120\" r=\"104\" pathLength=\"100\"/></svg><div class=\"ds-face\"><p class=\"ds-label\">Room</p><p class=\"ds-reading\">27<span>°C</span></p><p class=\"ds-state\">Cooling</p><p class=\"ds-target\">Target <b>25°</b></p></div></div>",
+      "css": ".ds-dial{position:relative;width:248px;aspect-ratio:1;font-family:-apple-system,system-ui,sans-serif;color:var(--text,#f5f7fb)}.ds-dial svg{position:absolute;inset:0;width:100%;height:100%;rotate:135deg}.ds-dial circle{fill:none;stroke-width:14;stroke-linecap:round}.ds-track{stroke:var(--raised,#1d2433);stroke-dasharray:75 100}.ds-arc{stroke:var(--off,#364055);stroke-dasharray:var(--arc,0 100);transition:stroke-dasharray .45s cubic-bezier(.22,1,.36,1),stroke .4s cubic-bezier(.32,.72,0,1)}.ds-dial[data-power=on] .ds-arc{stroke:var(--cool,#4f9cff)}.ds-dial[data-power=rest] .ds-arc{stroke:var(--rest,#8b7cf6)}.ds-face{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-top:6px}.ds-face p{margin:0}.ds-label{font-size:14px;font-weight:600;color:var(--muted,#9ba7ba)}.ds-reading{display:flex;align-items:flex-start;font-size:76px;font-weight:300;letter-spacing:-.04em;line-height:1;font-variant-numeric:tabular-nums}.ds-reading span{font-size:22px;font-weight:400;margin:10px 0 0 2px;color:var(--muted,#9ba7ba);letter-spacing:0}.ds-state{margin-top:6px!important;font-size:15px;font-weight:600;color:var(--cool,#4f9cff)}.ds-target{margin-top:4px!important;font-size:14px;color:var(--muted,#9ba7ba)}.ds-target b{color:var(--text,#f5f7fb);font-weight:650}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Night-Table Thermostat",
+    "overview": "Aircon is the smart-home thermostat played straight, at Apple Home polish: a near-black blue room, solid raised cards, one circular dial, and type set in the platform's own sans. It is convention on purpose. The app should feel like a control that came with the phone, picked up half-asleep in a dark room, read at a glance, and put down.\n\nThe screen is dark only. There is no light theme and there should never be one: the app is used at bedtime in an unlit room, where a light surface glares. Density stays low. Each card holds one job (climate, sleep timer, Saver, usage), and the most important number on each card is set large and light.\n\nColour does not decorate. Surfaces are neutral blue-greys; hue appears only when it says something about the equipment: cool blue while cooling, indigo while Saver rests, grey while off, amber for practice, pending or stale, red for failure, iOS green for an \"on\" switch and for money saved. No glass on surfaces, no glow, no bounce.",
+    "keyCharacteristics": [
+      "Dark only: near-black blue ground with solid tonal cards on top.",
+      "One circular dial as the signature: the arc sweeps to the target and changes hue with state.",
+      "Colour carries state only; neutral everywhere else.",
+      "System sans (SF on Apple devices) with tabular numerals; big readings in light weight.",
+      "Generous radii (24px cards, full-round controls) and soft ambient shadows.",
+      "iOS motion grammar: a fast-out ease, small press shrink, no overshoot."
+    ],
+    "rules": [
+      {
+        "name": "The State-Only Colour Rule",
+        "body": "A hue appears only when it reports the equipment or the account: cooling, resting, off, pending, stale, failed, saved. Neutral surfaces carry everything else. If a coloured element cannot say what state it reports, it is grey.",
+        "section": "colors"
+      },
+      {
+        "name": "The Dark-Only Rule",
+        "body": "There is one theme and it is dark (`color-scheme: dark`). Never add a light theme or light surfaces; the app is used in a dark room at night.",
+        "section": "colors"
+      },
+      {
+        "name": "The Green Switch Rule",
+        "body": "On/off switches use iOS Green when on, never Action Blue. Blue is for actions and cooling; green is the platform's \"enabled\" signal.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Numbers Rule",
+        "body": "Every number that changes or lines up (temperatures, times, countdowns, money, tables, chart ticks) uses tabular figures so values never jitter.",
+        "section": "typography"
+      },
+      {
+        "name": "The Light Reading Rule",
+        "body": "The single most important number on a card is large and light (300), never bold. Weight is for headings and labels.",
+        "section": "typography"
+      },
+      {
+        "name": "The Solid Surface Rule",
+        "body": "Cards, sheets and controls are opaque. No glass, no blur, no glow, no gradient fills on surfaces. The one exception is the phone tab bar, which uses the iOS tab-bar material (92% ground with a 20px backdrop blur) because it is that platform's native bar.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** keep every surface on the dark ramp: Night Ground, Surface, Raised, Fill.",
+      "**Do** colour only by state: Cooling Blue cooling, Rest Indigo Saver rest, Off Slate off, Caution Amber practice / pending / stale / someone else paying, Failure Red failure.",
+      "**Do** use iOS Green for an \"on\" switch and for money saved.",
+      "**Do** use tabular numerals for every changing or aligned number.",
+      "**Do** set the main reading on a card large and light (300 weight).",
+      "**Do** move with the iOS ease (`cubic-bezier(.32, .72, 0, 1)`) for state changes and the fast-out ease (`cubic-bezier(.22, 1, .36, 1)`) for movement; respect reduced motion.",
+      "**Do** confine hover styles to real pointers (`hover: hover` and `pointer: fine`)."
+    ],
+    "donts": [
+      "**Don't** add a light theme or light surfaces.",
+      "**Don't** use glass, blur or translucency on cards, sheets or controls; the phone tab bar's iOS material is the only exception.",
+      "**Don't** add glow, coloured shadows, gradients or ambient blobs.",
+      "**Don't** use bounce or overshoot easing; presses shrink and settle.",
+      "**Don't** colour an element that reports no state.",
+      "**Don't** use Action Blue for switches.",
+      "**Don't** load webfonts from elsewhere; the system sans is the face."
+    ]
+  }
+}

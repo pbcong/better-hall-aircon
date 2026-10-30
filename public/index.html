@@ -6,26 +6,29 @@
   <title>Hall Aircon · Sleep timer</title><link rel="icon" href="/favicon.svg">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png"><meta name="apple-mobile-web-app-title" content="Aircon">
   <meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#eaf0fa" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#070a12" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#0b0f17"><meta name="color-scheme" content="dark">
   <link rel="stylesheet" href="/style.css"><script src="/app.js" type="module"></script>
 </head>
 <body>
-  <div class="ambient" aria-hidden="true"><i class="blob one"></i><i class="blob two"></i><i class="blob three"></i></div>
   <main>
     <header class="topbar">
       <a class="brand" href="/"><img src="/favicon.svg" width="30" height="30" alt=""><span>Aircon</span></a>
+      <nav id="tabs" class="tabs" role="tablist" aria-label="Sections" hidden>
+        <button id="tab-control" type="button" role="tab" aria-selected="true" aria-controls="panel-control"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 4v10"/><circle cx="12" cy="17" r="3"/><path d="M9 13.5V5a3 3 0 0 1 6 0v8.5"/></svg><span>Control</span></button>
+        <button id="tab-usage" type="button" role="tab" aria-selected="false" aria-controls="usage"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M5 20V11"/><path d="M12 20V5"/><path d="M19 20v-6"/></svg><span>Usage</span></button>
+      </nav>
       <div class="topbar-end">
         <span id="mode" class="status-pill" hidden>Practice</span>
-        <button id="open-settings" type="button" class="icon-button glass" aria-label="Settings" aria-haspopup="dialog" hidden>
+        <button id="open-settings" type="button" class="icon-button" aria-label="Settings" aria-haspopup="dialog" hidden>
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         </button>
       </div>
     </header>
-    <section class="intro"><p class="eyebrow">A cooler night</p><h1 id="intro-title">Sleep well.<br>We’ll handle the off.</h1><p id="intro-description">Room controls and a shutdown timer, in one place.</p></section>
+    <section class="intro"><h1 id="intro-title">Sleep well.<br>We’ll handle the off.</h1><p id="intro-description">Room controls and a shutdown timer, in one place.</p></section>
     <div id="notice" role="status" aria-live="polite" hidden></div>
-    <div id="loading" class="glass" role="status"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton"></span><p>Restoring your connection…</p></div>
+    <div id="loading" class="card" role="status"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton"></span><p>Restoring your connection…</p></div>
 
-    <section id="access" class="card glass" hidden>
+    <section id="access" class="card" hidden>
       <h2>Welcome back</h2><p>Sign in once to use your room controls.</p>
       <form id="access-form">
         <input name="username" value="owner" autocomplete="username" readonly hidden>
@@ -34,11 +37,11 @@
         <button class="primary" type="submit">Sign in</button>
       </form><p class="fine">Your NTU sign-in is separate.</p>
     </section>
-    <section id="migration" class="card glass" hidden><h2>Choose your saved connection</h2>
+    <section id="migration" class="card" hidden><h2>Choose your saved connection</h2>
       <p>Older browsers saved separate connections. Choose which connection and shutdown this app should keep. Other pending shutdowns will be cancelled when you choose.</p>
       <div id="migration-options"></div>
     </section>
-    <section id="connect" class="card glass" hidden>
+    <section id="connect" class="card" hidden>
       <h2>Connect your aircon</h2>
       <p>Sign in on NTU’s official page. Your password stays with NTU.</p>
       <label id="connection-remember" class="remember"><input id="remember" type="checkbox" checked> Keep me connected on this computer</label>
@@ -64,41 +67,30 @@
     </section>
 
     <section id="controls" hidden>
-      <div class="control-grid">
-        <article id="climate" class="card glass climate" data-power="unknown">
-          <svg class="airflow" viewBox="0 0 320 120" preserveAspectRatio="none" aria-hidden="true">
-            <path d="M-20 30 C 40 10, 80 50, 140 30 S 240 10, 340 30"/><path d="M-20 62 C 50 42, 90 82, 160 62 S 260 42, 340 62"/><path d="M-20 94 C 30 74, 100 114, 150 94 S 250 74, 340 94"/>
-          </svg>
-          <div class="climate-main">
-            <div class="climate-reading">
+      <div id="panel-control" class="control-grid" role="tabpanel" aria-labelledby="tab-control">
+        <article id="climate" class="card climate" data-power="unknown">
+          <div class="dial">
+            <svg class="dial-ring" viewBox="0 0 240 240" aria-hidden="true"><circle class="dial-track" cx="120" cy="120" r="104" pathLength="100"/><circle class="dial-arc" cx="120" cy="120" r="104" pathLength="100"/></svg>
+            <div class="dial-face">
               <p class="label">Room</p>
               <p class="reading"><span id="temperature">--</span><span class="unit">°C</span></p>
               <p id="power-state" class="power-state" aria-live="polite">Checking…</p>
-              <p id="payer" class="payer" data-account="" aria-live="polite" hidden></p>
+              <p class="dial-target"><span id="setpoint-label">Target</span> <output id="setpoint" aria-live="polite">25°</output></p>
             </div>
-            <button id="power" type="button" class="power-button" aria-pressed="false" aria-label="Aircon power">
-              <span class="power-halo" aria-hidden="true"></span>
-              <svg viewBox="0 0 24 24" width="30" height="30" aria-hidden="true"><path d="M12 3v8"/><path d="M6.4 6.6a8 8 0 1 0 11.2 0"/></svg>
-            </button>
           </div>
-          <div class="row">
-            <span class="row-label" id="setpoint-label">Target</span>
-            <div class="stepper" role="group" aria-labelledby="setpoint-label">
-              <button id="temperature-down" type="button" aria-label="Cooler">−</button>
-              <output id="setpoint" aria-live="polite">25°</output>
-              <button id="temperature-up" type="button" aria-label="Warmer">+</button>
-            </div>
+          <div class="dial-row" role="group" aria-labelledby="setpoint-label">
+            <button id="temperature-down" type="button" class="round" aria-label="Cooler"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M6 12h12"/></svg></button>
+            <button id="power" type="button" class="power-button" aria-pressed="false" aria-label="Aircon power">
+              <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path d="M12 3v8"/><path d="M6.4 6.6a8 8 0 1 0 11.2 0"/></svg>
+            </button>
+            <button id="temperature-up" type="button" class="round" aria-label="Warmer"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M6 12h12"/><path d="M12 6v12"/></svg></button>
           </div>
           <p id="temperature-current" class="row-hint" role="status"></p>
-          <div class="row saver-row">
-            <span class="saver-text"><span id="saver-label" class="row-label">Saver</span><span id="saver-summary"></span></span>
-            <button id="saver-switch" type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="saver-label" aria-describedby="saver-summary"><span></span></button>
-          </div>
-          <p id="saver-stopped" class="row-hint" role="status" hidden></p>
+          <p id="payer" class="payer" data-account="" aria-live="polite" hidden></p>
           <button id="refresh" type="button" class="stale" hidden></button>
         </article>
 
-        <article class="card glass timer-card">
+        <article class="card timer-card">
           <h2>Sleep timer</h2>
           <div id="timer-result" role="status" aria-live="polite" hidden>
             <p id="timer-state" class="timer-state"></p>
@@ -121,7 +113,15 @@
           </form>
         </article>
 
-        <article id="usage" class="card glass usage-card" hidden>
+        <article id="saver-card" class="card saver-card" hidden>
+          <div class="row saver-row">
+            <span class="saver-text"><span id="saver-label" class="row-label">Saver</span><span id="saver-summary"></span></span>
+            <button id="saver-switch" type="button" class="switch" role="switch" aria-checked="true" aria-labelledby="saver-label" aria-describedby="saver-summary"><span></span></button>
+          </div>
+          <p id="saver-stopped" class="row-hint" role="status" hidden></p>
+        </article>
+      </div>
+        <article id="usage" class="usage-panel" role="tabpanel" aria-labelledby="tab-usage" hidden>
           <div class="card-heading"><h2>Usage</h2><span id="usage-rate" class="small-label"></span></div>
           <dl class="tiles">
             <div><dt>Balance</dt><dd id="usage-balance">--</dd><dd id="usage-left" class="fine"></dd></div>
@@ -129,7 +129,7 @@
             <div><dt>7 days</dt><dd id="usage-week">--</dd><dd id="usage-week-note" class="fine"></dd></div>
             <div><dt>30 days</dt><dd id="usage-month">--</dd><dd id="usage-month-note" class="fine"></dd></div>
           </dl>
-          <details id="usage-more"><summary>Charts and history</summary>
+          <div id="usage-more">
             <p id="usage-note" class="fine"></p>
             <div class="section-heading"><h3>Costs</h3><div class="range" role="group" aria-label="Cost period"><button type="button" data-period="7" aria-pressed="false">7d</button><button type="button" data-period="30" aria-pressed="true">30d</button><button type="button" data-period="month" aria-pressed="false">Month</button><button type="button" data-period="all" aria-pressed="false">All</button><button type="button" data-period="custom" aria-pressed="false">Custom</button></div></div>
             <div id="period-custom" class="period-custom" hidden><div><label for="period-from">From</label><input id="period-from" type="date"></div><div><label for="period-to">To</label><input id="period-to" type="date"></div></div>
@@ -142,17 +142,16 @@
               <div><dt>Charged by Daikin</dt><dd id="period-charged">--</dd></div>
             </dl>
             <div class="chart-legend" aria-hidden="true"><span><i class="key-spent"></i>Spent</span><span><i class="key-saved"></i>Saved by Saver</span></div>
-            <div class="chart-wrap"><svg id="cost-chart" role="img" aria-label="Spent and saved per day. The daily breakdown table below has the same figures."></svg><div id="cost-tip" class="chart-tip" hidden></div></div>
+            <div id="cost-wrap" class="chart-wrap" data-empty="No cooling in this period yet. Spending appears here after a session ends."><svg id="cost-chart" role="img" aria-label="Spent and saved per day. The daily breakdown table below has the same figures."></svg><div id="cost-tip" class="chart-tip" hidden></div></div>
             <details id="daily-details"><summary>Day by day</summary><div class="table-scroll"><table><thead><tr><th scope="col">Day</th><th scope="col">Switched on</th><th scope="col">Resting</th><th scope="col">Spent</th><th scope="col">Saved</th><th scope="col">Charged by Daikin</th><th scope="col">Switch-ons</th><th scope="col">Avg room</th></tr></thead><tbody id="daily"></tbody><tfoot id="daily-total"></tfoot></table></div><p class="fine">Spent and Saved are time × the hourly rate. Charged by Daikin is what actually left your balance that day; it lands when the aircon switches off, so it can differ from Spent around midnight or while a session is still running.</p></details>
             <div class="section-heading"><h3>Room temperature</h3><div class="range" role="group" aria-label="Time range"><button type="button" data-hours="6" aria-pressed="false">6h</button><button type="button" data-hours="24" aria-pressed="true">24h</button><button type="button" data-hours="168" aria-pressed="false">7d</button></div></div>
             <div class="chart-legend" aria-hidden="true"><span><i class="key-room"></i>Room</span><span><i class="key-target"></i>Target</span><span><i class="key-band"></i>Aircon on</span></div>
-            <div class="chart-wrap"><svg id="usage-chart" role="img" aria-label="Room temperature and cooling periods over time. The sessions table below lists the same periods."></svg><div id="chart-tip" class="chart-tip" hidden></div></div>
+            <div id="room-wrap" class="chart-wrap" data-empty="No readings in this range yet. They are logged every minute while the aircon is on."><svg id="usage-chart" role="img" aria-label="Room temperature and cooling periods over time. The sessions table below lists the same periods."></svg><div id="chart-tip" class="chart-tip" hidden></div></div>
             <p id="usage-empty" class="fine" hidden>Readings are logged every minute while the aircon is on and every five minutes while it is off. The charts fill in as they arrive.</p>
             <details id="sessions-details"><summary>Cooling sessions</summary><div class="table-scroll"><table><thead><tr><th scope="col">Started</th><th scope="col">On for</th><th scope="col">Charged</th><th scope="col">Per hour</th><th scope="col">Mode</th></tr></thead><tbody id="sessions"></tbody></table></div><p class="fine">Daikin deducts the charge when the aircon switches off, so each row is one switch-on to switch-off.</p></details>
             <div class="downloads"><button id="download-daily" type="button" class="text-button">Download this period (CSV)</button><button id="download" type="button" class="text-button">Raw readings, 31 days (CSV)</button></div>
-          </details>
+          </div>
         </article>
-      </div>
     </section>
     <p id="last-result" role="status" aria-live="polite"></p>
 

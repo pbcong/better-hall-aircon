@@ -3,3 +3,9 @@ node_modules/
 .dev.vars
 .env
 .env.*
+# Impeccable: engine binary re-downloads on first run; review captures and decision sketches are scratch.
+.claude/skills/impeccable/scripts/bin/
+.claude/settings.local.json
+.impeccable/review/
+.impeccable/mocks/
+.impeccable/live/

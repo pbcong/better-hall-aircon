@@ -29,6 +29,8 @@ let saverKind = 'interval';
 let usageRows = [];
 let usageHours = 24;
 let usageLoaded = 0;
+let tab = 'control';
+let manualShown = false;
 const clockNow = () => Date.now() + serverOffset;
 function notice(message = '') { $('notice').textContent = message; $('notice').hidden = !message; }
 // Set text and, when it actually changes, replay a short settle animation.
@@ -96,7 +98,7 @@ function render() {
     if (Math.abs(after - before[i]) < 1) return;
     card.getAnimations().filter(a => a.id === 'morph').forEach(a => a.cancel());
     card.style.overflow = 'clip';
-    const motion = card.animate([{ height: `${before[i]}px` }, { height: `${after}px` }], { id: 'morph', duration: 560, easing: getComputedStyle(document.documentElement).getPropertyValue('--spring-soft').trim() || 'ease-out' });
+    const motion = card.animate([{ height: `${before[i]}px` }, { height: `${after}px` }], { id: 'morph', duration: 560, easing: getComputedStyle(document.documentElement).getPropertyValue('--ease-out').trim() || 'ease-out' });
     motion.onfinish = motion.oncancel = () => { if (!card.getAnimations().some(a => a.id === 'morph' && a !== motion)) card.style.overflow = ''; };
   });
   if (state) rendered = true;
@@ -130,12 +132,14 @@ function paint() {
   document.querySelector('main').classList.toggle('is-connected', Boolean(state.connected || state.timer));
   $('connect').hidden = !authorized || migrating || Boolean(state.connected);
   $('controls').hidden = !authorized || migrating || (!state.connected && !state.timer);
-  $('climate').hidden = !state.connected;
+  $('climate').hidden = $('saver-card').hidden = !state.connected;
   $('settings-connection').hidden = !state.connected && !state.timer;
   $('settings-room').hidden = $('settings-saver').hidden = !state.connected;
   if (!state.connected && state.lastResult) notice(state.lastResult.message);
   $('login-waiting').hidden = !state.loginWaiting;
   $('cancel-login').hidden = !state.loginWaiting;
+  // Without the login helper, lead with the manual path so the screen always has a working action.
+  if (!state.hosted && !helperReady && !state.connected && !manualShown) { manualShown = true; $('manual-login').open = true; }
   $('helper-status').textContent = helperReady ? 'Login helper ready. Your return code will be captured automatically.' : 'Install the login helper below for automatic capture, or connect manually.';
   $('mode').hidden = !state.connected;
   $('mode').dataset.mode = state.mode ?? '';
@@ -176,6 +180,9 @@ function paint() {
   const limits = state.temperatureLimits ?? { min: 22, max: 30 };
   const setpoint = temperatureDirty ? target : state.status?.setpoint ?? null;
   if (!temperatureDirty) target = setpoint;
+  // The dial arc shows where the target sits in the allowed range.
+  const fill = setpoint == null ? 0 : Math.max(0, Math.min(1, (setpoint - limits.min) / (limits.max - limits.min)));
+  $('climate').style.setProperty('--arc', `${(75 * fill).toFixed(2)} 100`);
   if ($('setpoint').textContent !== (setpoint == null ? '--' : `${setpoint}°`)) $('setpoint').textContent = setpoint == null ? '--' : `${setpoint}°`;
   $('setpoint').toggleAttribute('data-pending', temperatureDirty);
   $('temperature-current').textContent = temperatureDirty ? (temperatureSending ? `Setting ${target}°…` : '')
@@ -208,6 +215,7 @@ function paint() {
   countdown(); preview();
   document.querySelectorAll('button').forEach(button => { if (button.closest('dialog')) return; button.disabled = working || state.busy; });
   $('open-settings').disabled = false;
+  $('tab-control').disabled = $('tab-usage').disabled = false;
   $('power').disabled = working || state.busy;
   $('automatic-login').disabled = working || state.busy || !helperReady || state.loginWaiting;
   $('automatic-login').toggleAttribute('data-unavailable', !helperReady || Boolean(state.loginWaiting));
@@ -554,7 +562,8 @@ function periodDates(today) {
 }
 function renderUsage() {
   const live = state?.mode === 'live';
-  $('usage').hidden = !live;
+  if (!live && tab === 'usage') tab = 'control';
+  showTab();
   if (!live) return;
   const now = clockNow(), today = singaporeDate(now);
   const from = now - usageHours * 3600000;
@@ -581,8 +590,9 @@ function renderUsage() {
   const tracked = days.filter(day => usageDays.length && day.date >= usageDays[0].date).length;
   $('period-average').textContent = tracked ? money(sum.cost / tracked) : '--';
   $('period-charged').textContent = money(sum.charged);
-  $('usage-empty').hidden = usageRows.length > 1;
-  if ($('usage-more').open) {
+  $('cost-wrap').classList.toggle('is-empty', sum.cost + sum.saved + sum.charged <= 0);
+  $('room-wrap').classList.toggle('is-empty', usageRows.filter(row => row.t >= from).length < 2);
+  if (tab === 'usage') {
     drawCost($('cost-chart'), $('cost-tip'), days);
     drawChart($('usage-chart'), $('chart-tip'), usageRows.filter(row => row.t >= from), from, now);
   }
@@ -626,21 +636,33 @@ document.querySelectorAll('[data-period]').forEach(button => button.addEventList
 }));
 for (const id of ['period-from', 'period-to']) $(id).addEventListener('change', renderUsage);
 window.addEventListener('resize', () => { if (state?.mode === 'live') renderUsage(); });
-$('usage-more').addEventListener('toggle', () => { if (state?.mode === 'live') renderUsage(); placeThumbs(); });
+// Control and Usage tabs. Usage exists only with a live connection; practice mode has no history.
+function showTab() {
+  const live = state?.mode === 'live';
+  $('tabs').hidden = !live;
+  $('usage').hidden = !live || tab !== 'usage';
+  $('panel-control').hidden = live && tab === 'usage';
+  for (const name of ['control', 'usage']) {
+    const button = $(`tab-${name}`), on = tab === name;
+    button.setAttribute('aria-selected', String(on)); button.tabIndex = on ? 0 : -1;
+  }
+  document.body.dataset.tab = live ? tab : '';
+}
+function chooseTab(name, focus = false) {
+  if (tab === name) return;
+  tab = name; renderUsage(); placeThumbs(); scrollTo({ top: 0 });
+  if (focus) $(`tab-${name}`).focus();
+}
+$('tab-control').addEventListener('click', () => chooseTab('control'));
+$('tab-usage').addEventListener('click', () => chooseTab('usage'));
+$('tabs').addEventListener('keydown', event => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault(); chooseTab(['ArrowLeft', 'Home'].includes(event.key) ? 'control' : 'usage', true);
+});
 
 // Touch feel. iOS Safari only applies :active styles once the page listens for touches.
 document.addEventListener('touchstart', () => {}, { passive: true });
-// The glass highlight follows the finger or pointer across the control being pressed.
-document.addEventListener('pointerdown', glow, { passive: true });
-document.addEventListener('pointermove', glow, { passive: true });
-function glow(event) {
-  const button = event.target.closest?.('button');
-  if (!button) return;
-  const box = button.getBoundingClientRect();
-  button.style.setProperty('--mx', `${event.clientX - box.left}px`);
-  button.style.setProperty('--my', `${event.clientY - box.top}px`);
-}
-// Range tabs get one glass thumb that slides to the chosen option, like an iOS segmented control.
+// Range tabs get one thumb that slides to the chosen option, like an iOS segmented control.
 document.querySelectorAll('.range').forEach(group => { const thumb = document.createElement('i'); thumb.className = 'range-thumb'; thumb.setAttribute('aria-hidden', 'true'); group.prepend(thumb); });
 function placeThumbs() {
   document.querySelectorAll('.range').forEach(group => {
