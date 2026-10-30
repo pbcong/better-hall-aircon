@@ -646,6 +646,7 @@ function showTab() {
     const button = $(`tab-${name}`), on = tab === name;
     button.setAttribute('aria-selected', String(on)); button.tabIndex = on ? 0 : -1;
   }
+  $('tabs').dataset.tab = tab;
   document.body.dataset.tab = live ? tab : '';
 }
 function chooseTab(name, focus = false) {

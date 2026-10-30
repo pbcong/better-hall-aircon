@@ -74,10 +74,14 @@ svg path, svg circle { fill: none; stroke: currentColor; stroke-width: 2; stroke
 .icon-button { display: grid; place-items: center; width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 50%; color: var(--text); background: var(--fill); }
 
 /* Tabs: a segmented control in the header on wide screens, a tab bar on phones. */
-.tabs { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--surface); }
-.tabs button { display: inline-flex; align-items: center; gap: 8px; min-height: 38px; padding: 6px 18px; border-radius: 999px; font-size: 14px; color: var(--muted); }
+.tabs { position: relative; isolation: isolate; display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 999px; background: var(--surface); }
+/* One highlight slides to the chosen tab, like the other segmented controls. */
+.tabs::before { content: ""; position: absolute; z-index: -1; inset: 3px auto 3px 3px; width: calc(50% - 3px); border-radius: 999px; background: var(--fill);
+  box-shadow: 0 2px 6px rgb(0 0 0 / .3); transition: translate .35s var(--ease-out); }
+.tabs[data-tab="usage"]::before { translate: 100% 0; }
+.tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 6px 18px; border-radius: 999px; font-size: 14px; color: var(--muted); }
 .tabs button svg { width: 18px; height: 18px; }
-.tabs [aria-selected="true"] { color: var(--text); background: var(--fill); }
+.tabs [aria-selected="true"] { color: var(--text); }
 .tabs button:active:not(:disabled) { transform: scale(.97); }
 
 /* Intro (signed-out screens) */
@@ -444,7 +448,8 @@ tfoot th { color: var(--text); border-bottom: 0; }
   .section-heading .range { margin-left: 0; }
   .usage-panel > .card-heading { margin-top: 8px; }
   /* Tab bar along the bottom edge, above the home indicator. */
-  .tabs { position: fixed; z-index: 5; left: 0; right: 0; bottom: 0; justify-content: space-around; padding: 6px 12px max(6px, env(safe-area-inset-bottom)); border-radius: 0;
+  .tabs::before { display: none; }
+  .tabs { display: flex; position: fixed; z-index: 5; left: 0; right: 0; bottom: 0; justify-content: space-around; padding: 6px 12px max(6px, env(safe-area-inset-bottom)); border-radius: 0;
     background: rgb(15 20 30 / .92); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); box-shadow: inset 0 1px 0 var(--hairline); }
   .tabs button { flex: 1; flex-direction: column; gap: 2px; min-height: 50px; padding: 4px; font-size: 11px; font-weight: 600; border-radius: 12px; }
   .tabs button svg { width: 24px; height: 24px; }
