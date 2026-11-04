@@ -297,6 +297,23 @@ test('upstream errors are sanitized and rejected tokens do not authenticate', as
   assert.equal((await f.request('/api/connect', { token: TOKEN })).code, 401);
   assert.equal((await f.request('/api/state')).value.connected, false);
 });
+test('a refused command with a working token keeps the connection and explains an empty wallet', async t => {
+  const me = balance => Response.json({ data: { balance, aircon: { power: 0, current_temperature: 25 } } });
+  let balance = 0;
+  const client = createDaikinClient(async (url, init) => init.method === 'GET' ? me(balance) : new Response('', { status: 402 }));
+  await assert.rejects(client.control(TOKEN, true), error => error.status === 409 && /balance is \$0\.00/.test(error.message));
+  balance = 5;
+  await assert.rejects(client.temperature(TOKEN, 22), error => error.status === 409 && /still signed in/.test(error.message));
+  balance = 0;
+  const f = await fixture(t, { client });
+  await f.request('/api/session'); await f.request('/api/connect', { token: TOKEN });
+  const result = await f.request('/api/power', { power: true });
+  assert.equal(result.code, 409); assert.match(result.value.error, /Top up/);
+  const state = (await f.request('/api/state')).value;
+  assert.equal(state.connected, true); assert.equal(state.status.balance, 0);
+  const expired = createDaikinClient(async () => new Response('', { status: 402 }));
+  await assert.rejects(expired.control(TOKEN, false), error => error.status === 401);
+});
 test('local security rejects CSRF, foreign origins, Host spoofing, query secrets and unauthenticated writes', async t => {
   const f = await fixture(t);
   assert.equal((await f.request('/api/power', { power: true })).code, 401);

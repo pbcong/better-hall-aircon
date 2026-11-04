@@ -165,6 +165,18 @@ export function createDaikinClient(fetchImpl = fetch, { cloud = false } = {}) {
     }
     return value;
   }
+  // Daikin also answers 401-403 when it refuses a command for other reasons, such as an
+  // empty wallet. The sign-in has only expired if /me rejects the same token too.
+  async function command(token, body) {
+    try { await request('/v2/ac/control', token, body); }
+    catch (error) {
+      if (error.status !== 401) throw error;
+      const { balance } = normalizeStatus(await request('/me', token));
+      throw new AppError(409, balance !== null && balance <= 0
+        ? `Daikin refused the command because your balance is $${balance.toFixed(2)}. Top up in the Hall Aircon app.`
+        : 'Daikin refused the command. You are still signed in; try again.');
+    }
+  }
   return {
     exchange: async hash => {
       const result = await request('/auth/ad/callback', null, { hash });
@@ -172,8 +184,8 @@ export function createDaikinClient(fetchImpl = fetch, { cloud = false } = {}) {
       return parseToken(result.data.token);
     },
     status: async token => normalizeStatus(await request('/me', token)),
-    control: async (token, power) => { await request('/v2/ac/control', token, { power: power ? '1' : '0' }); },
-    temperature: async (token, setpoint) => { await request('/v2/ac/control', token, { power: '1', setpoint: String(setpoint) }); },
+    control: (token, power) => command(token, { power: power ? '1' : '0' }),
+    temperature: (token, setpoint) => command(token, { power: '1', setpoint: String(setpoint) }),
   };
 }
 

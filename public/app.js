@@ -239,12 +239,16 @@ async function action(fn) {
   working = true; notice();
   const button = pressed; pressed = null; button?.classList.add('is-loading');
   render();
+  let failure = null;
   try { await fn(); } catch (error) {
-    const message = error.message;
+    failure = error.message;
     if (state?.authenticated !== false) { try { await api('/api/session'); } catch { /* Keep the original error visible. */ } }
-    notice(message);
   }
-  finally { working = false; button?.classList.remove('is-loading'); render(); }
+  finally {
+    working = false; button?.classList.remove('is-loading'); render();
+    // render() shows any stale lastResult; the error from this action must win.
+    if (failure) notice(failure);
+  }
 }
 $('connect-form').addEventListener('submit', event => {
   event.preventDefault(); const token = $('token').value; $('token').value = '';
